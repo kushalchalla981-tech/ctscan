@@ -118,14 +118,5 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
 
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='CT reconstruction using LU decomposition')
-    parser.add_argument('--size', type=int, default=32, help='Phantom size (default: 32)')
-    parser.add_argument('--refine', action='store_true', help='Use iterative refinement')
-    parser.add_argument('--method', default='auto', choices=['auto', 'sparse', 'dense'],
-                        help='Solver method (default: auto)')
-    
-    args = parser.parse_args()
-    
-    results = reconstruct(size=args.size, use_refinement=args.refine, method=args.method)
+    print("Use 'python main.py reconstruct' instead.")
+    print("See 'python main.py --help' for details.")
