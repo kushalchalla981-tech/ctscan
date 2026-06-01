@@ -96,13 +96,23 @@ Launches a numbered menu with options for phantom reconstruction, image upload, 
 
 ## Samples
 
-Three public-domain CT DICOM files are included in `samples/`:
-
-| File | Anatomy | Source |
+| File | Type | Description |
 |---|---|---|
-| `CT-brain.dcm` | Head | CT-MONO2-16-brain (Barre's Collection) |
-| `CT-chest.dcm` | Chest | CT-MONO2-16-chest (Barre's Collection) |
-| `CT-ankle.dcm` | Ankle | CT-MONO2-16-ankle (Barre's Collection) |
+| `CT-brain.dcm` | Real CT (525 KB) | Head scan — Barre's Collection |
+| `CT-chest.dcm` | Real CT (145 KB) | Chest scan — Barre's Collection |
+| `CT-ankle.dcm` | Real CT (525 KB) | Ankle scan — Barre's Collection |
+| `CT-small.dcm` | Real CT (39 KB) | 128×128 CT — pydicom test fixture |
+| `phantom-shepp-logan.dcm` | Synthetic DICOM | Shepp-Logan phantom (128×128) |
+| `phantom-rings.dcm` | Synthetic DICOM | Concentric rings test pattern |
+| `phantom-resolution.dcm` | Synthetic DICOM | Resolution bar pattern |
+| `phantom-gradient.dcm` | Synthetic DICOM | Intensity gradient |
+| `checkerboard.png` | Image (118 B) | 128×128 checkerboard pattern |
+| `rings.png` | Image (1 KB) | Concentric rings |
+| `gradient.png` | Image (192 B) | Linear intensity gradient |
+| `shapes.png` | Image (392 B) | Geometric shapes |
+
+> Synthetic DICOM files are valid CT DICOMs generated with pydicom.
+> PNG files can be used with `--input` without any DICOM library.
 
 ## Architecture
 
@@ -117,7 +127,7 @@ src/
 ├── reconstructor.py     Full reconstruction pipeline
 ├── noise.py             Gaussian/Poisson noise + robustness testing
 └── validate.py          Consolidated validation suite
-samples/                 DICOM example files
+samples/                 12 example files (real DICOM + synthetic + PNG)
 tests/                   31 unit tests
 demo.ipynb               Jupyter notebook walkthrough
 COLLEGE_REPORT.md        Full project report
