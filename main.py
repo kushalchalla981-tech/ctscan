@@ -90,7 +90,84 @@ def cmd_reconstruct(args):
         samples = ['samples/CT-brain.dcm', 'samples/CT-chest.dcm', 'samples/CT-ankle.dcm']
         example = next((s for s in samples if s == args.input), None)
         if not example:
-            console.print(f'\n[dim]Try: python main.py reconstruct --input samples/CT-brain.dcm --compare[/]')
+            console.print(f'\n[dim]Try: python main.py upload[/]')
+
+
+# ── Subcommand: upload ────────────────────────────────────────────────
+
+def _pick_file():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path = filedialog.askopenfilename(
+            title='Select an image file',
+            filetypes=[
+                ('Image files', '*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.dcm'),
+                ('DICOM', '*.dcm'),
+                ('All files', '*.*'),
+            ]
+        )
+        root.destroy()
+        return path if path else None
+    except Exception:
+        return None
+
+
+def cmd_upload(args):
+    console.print(Panel(
+        '[bold]CT Reconstruction — Image Upload[/]\n\n'
+        'Select an image from your computer. We will:\n'
+        '  [1] Resize it to a small phantom (32×32)\n'
+        '  [2] Simulate CT X-ray projections through it\n'
+        '  [3] Reconstruct the original from those projections\n'
+        '  [4] Measure how accurate the reconstruction is\n\n'
+        '[dim]This simulates what a real CT scanner does —\n'
+        'it takes projection measurements and computes\n'
+        'the internal image using math.[/]',
+        border_style='green',
+    ))
+
+    path = _pick_file() if not args.file else args.file
+    if not path:
+        console.print('[yellow]No file selected. Falling back to manual path entry.[/]')
+        path = Prompt.ask('[bold]Enter image path[/]')
+        if not path or not Path(path).exists():
+            console.print('[red]File not found. Aborting.[/]')
+            return
+
+    console.print(f'\n[green]Loading:[/] {path}')
+    from src.reconstructor import reconstruct
+    with console.status('[bold green]Reconstructing...'):
+        results = reconstruct(
+            size=args.size, use_refinement=args.refine, method=args.method,
+            input_image=path, compare_path=args.compare,
+            save_metrics_path=args.save_metrics,
+        )
+
+    m = results['metrics']
+    t = Table(box=box.SIMPLE_HEAVY, title='[bold]Results[/]')
+    t.add_column('Metric', style='cyan')
+    t.add_column('Value', justify='right')
+    for k, v in [('RMSE', m['rmse']), ('PSNR', f'{m["psnr"]:.2f} dB'),
+                 ('SSIM', m['ssim']), ('Residual', f'{m["residual"]:.2e}')]:
+        t.add_row(k, str(v))
+    console.print(t)
+
+    console.print(Panel(
+        '[bold]What just happened?[/]\n\n'
+        'Your image was used as the "ground truth" (what the body\n'
+        'actually looks like). We simulated CT X-ray beams passing\n'
+        'through it from multiple angles, creating projection data\n'
+        '(the sinogram). Then we solved a large system of equations\n'
+        f'to reconstruct the original image.\n\n'
+        f'RMSE={m["rmse"]:.4f}, PSNR={m["psnr"]:.1f}dB — '
+        f'lower RMSE / higher PSNR = better reconstruction.\n'
+        f'[dim]Try a different image or increase --size for more detail![/]',
+        border_style='blue',
+    ))
 
 
 # ── Subcommand: validate ──────────────────────────────────────────────
@@ -211,7 +288,7 @@ def cmd_interactive(args=None):
         console.print('[bold]Menu:[/]')
         console.print('  [1] Reconstruct (Shepp-Logan phantom)')
         console.print('  [2] Reconstruct with refinement')
-        console.print('  [3] Reconstruct from DICOM sample')
+        console.print('  [3] Upload image → simulate CT reconstruction')
         console.print('  [4] Validate — Forward Model')
         console.print('  [5] Validate — LU Solver')
         console.print('  [6] Validate — Reconstruction')
@@ -253,6 +330,34 @@ def cmd_interactive(args=None):
                          ('SSIM', m['ssim']), ('Residual', f'{m["residual"]:.2e}')]:
                 t.add_row(k, str(v))
             console.print(t)
+
+        elif choice == '3':
+            path = _pick_file()
+            if not path:
+                console.print('[yellow]No file selected. Enter path manually:[/]')
+                path = Prompt.ask('[bold]Image path[/]')
+            if not path or not Path(path).exists():
+                console.print('[red]File not found.[/]')
+                continue
+            from src.reconstructor import reconstruct
+            size = IntPrompt.ask('Phantom size', default=32)
+            with console.status('[bold green]Reconstructing from image...'):
+                results = reconstruct(size=size, use_refinement=False, input_image=path)
+            m = results['metrics']
+            t = Table(box=box.SIMPLE_HEAVY, title='[bold]Results[/]')
+            t.add_column('Metric', style='cyan'); t.add_column('Value', justify='right')
+            for k, v in [('RMSE', m['rmse']), ('PSNR', f'{m["psnr"]:.2f} dB'),
+                         ('SSIM', m['ssim']), ('Residual', f'{m["residual"]:.2e}')]:
+                t.add_row(k, str(v))
+            console.print(t)
+            console.print(Panel(
+                '[bold]What happened?[/]\n\n'
+                'Your image became the "ground truth". We simulated\n'
+                'X-ray projections through it, then reconstructed it\n'
+                'from those projections using math — just like a real\n'
+                'CT scanner does internally.',
+                border_style='blue',
+            ))
 
         elif choice == '4':
             size = IntPrompt.ask('Phantom size', default=32)
@@ -323,6 +428,8 @@ def main():
             '  python main.py reconstruct --size 32\n'
             '  python main.py reconstruct --input samples/CT-brain.dcm --compare\n'
             '  python main.py reconstruct --size 32 --refine --output result.png\n'
+            '  python main.py upload                  # file dialog → reconstruct\n'
+            '  python main.py upload -f my_photo.png  # direct path → reconstruct\n'
             '  python main.py validate --all\n'
             '  python main.py validate --phase 2\n'
             '  python main.py noise --levels 0 1 5 10 --regularize --plot noise.png\n'
@@ -361,6 +468,19 @@ def main():
     n.add_argument('--size', type=int, default=32, help='Phantom size (default: 32)')
     n.add_argument('--plot', '-p', help='Save visual comparison plot to file')
 
+    # upload
+    u = sub.add_parser('upload', help='Load an image and simulate CT reconstruction')
+    u.add_argument('--file', '-f', default=None,
+                   help='Path to image file (opens file dialog if omitted)')
+    u.add_argument('--size', type=int, default=32, help='Phantom size (default: 32)')
+    u.add_argument('--refine', action='store_true', help='Use iterative refinement')
+    u.add_argument('--method', choices=['auto', 'sparse', 'dense'], default='auto',
+                   help='Solver method (default: auto)')
+    u.add_argument('--compare', '-c', default=None,
+                   help='Save comparison plot (4-panel: truth, recon, error, sinogram)')
+    u.add_argument('--save-metrics', '-m', default=None,
+                   help='Export metrics to JSON file')
+
     # interactive
     sub.add_parser('interactive', help='Launch interactive menu-driven mode')
 
@@ -373,6 +493,7 @@ def main():
         'reconstruct': cmd_reconstruct,
         'validate': cmd_validate,
         'noise': cmd_noise,
+        'upload': cmd_upload,
         'interactive': cmd_interactive,
         'info': cmd_info,
     }

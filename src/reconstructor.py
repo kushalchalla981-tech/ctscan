@@ -4,7 +4,6 @@ import sys
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-from src.phantom import shepp_logan
 from src.projector import build_system, get_sparsity
 from src.lud_solver import solve_lu, iterative_refinement
 from src.metrics import compute_metrics, ssim
@@ -36,12 +35,20 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
         x_true = load_image(input_image, size).flatten()
         source_label = input_image
     else:
+        from src.phantom import shepp_logan
         A, b, x_true = build_system(size)
 
     phantom = x_true.reshape(size, size)
 
     print(f"=== CT RECONSTRUCTION (size={size}) ===\n")
-    print(f"Source: {source_label}")
+
+    if input_image:
+        print(f"Input image: {source_label}")
+        print(f"This image is being used as the 'ground truth' (phantom).")
+        print(f"We simulate X-rays passing through it from many angles,")
+        print(f"then attempt to reconstruct the original from those projections.\n")
+    else:
+        print(f"Phantom: {source_label}")
 
     if not input_image:
         print(f"\n1. Building forward model...")

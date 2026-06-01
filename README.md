@@ -6,9 +6,10 @@ Educational prototype demonstrating medical image reconstruction from CT project
 
 ```bash
 pip install -r requirements.txt
-python main.py reconstruct --input samples/CT-brain.dcm --compare
-python main.py reconstruct --refine
-python main.py interactive
+python main.py reconstruct                       # Shepp-Logan phantom
+python main.py reconstruct --refine              # with iterative refinement
+python main.py upload                            # file dialog → your image
+python main.py interactive                       # menu-driven mode
 python main.py info
 ```
 
@@ -17,6 +18,7 @@ python main.py info
 | Command | Description |
 |---|---|
 | `python main.py reconstruct [options]` | Run full reconstruction pipeline |
+| `python main.py upload [options]` | Pick an image → simulate CT reconstruction |
 | `python main.py validate [--phase N] [--all]` | Run validation checks |
 | `python main.py noise [options]` | Noise robustness sweep |
 | `python main.py interactive` | Menu-driven interactive mode |
@@ -67,9 +69,30 @@ python main.py noise --levels 0 1 5 10 20 --regularize --plot noise.png
 | `--size` | 32 | Phantom size |
 | `--plot` / `-p` | none | Save visual comparison |
 
+### `upload`
+
+Opens a file dialog (or accepts `--file`) to pick any image. The image is
+used as the "ground truth" — we simulate CT X-ray projections through it,
+then reconstruct the original from those projections.
+
+```bash
+python main.py upload                          # file dialog pops up
+python main.py upload --file my_photo.png      # skip dialog, go direct
+python main.py upload -f my_photo.png --compare --size 48
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file` / `-f` | none | Direct path to image (no dialog) |
+| `--size` | 32 | Phantom dimension (pixels) |
+| `--refine` | off | Apply iterative refinement |
+| `--method` | auto | Solver: auto, sparse, or dense |
+| `--compare` / `-c` | none | Save 4-panel comparison plot |
+| `--save-metrics` / `-m` | none | Export metrics to JSON |
+
 ### `interactive`
 
-Launches a numbered menu with options for phantom/DICOM reconstruction, validations, noise sweep, and project info — no flags needed.
+Launches a numbered menu with options for phantom reconstruction, image upload, validations, noise sweep, and project info — no flags needed.
 
 ## Samples
 
