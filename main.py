@@ -65,8 +65,12 @@ def cmd_info(args=None):
 def cmd_reconstruct(args):
     from src.reconstructor import reconstruct
 
-    with console.status('[bold green]Reconstructing...') as status:
-        results = reconstruct(size=args.size, use_refinement=args.refine, method=args.method)
+    with console.status('[bold green]Reconstructing...'):
+        results = reconstruct(
+            size=args.size, use_refinement=args.refine, method=args.method,
+            input_image=args.input, compare_path=args.compare,
+            save_metrics_path=args.save_metrics,
+        )
 
     m = results['metrics']
     t = Table(box=box.SIMPLE_HEAVY, title='[bold]Results[/]')
@@ -81,6 +85,12 @@ def cmd_reconstruct(args):
         import matplotlib.pyplot as plt
         plt.savefig(args.output, dpi=150, bbox_inches='tight')
         console.print(f'[green]Plot saved:[/] {args.output}')
+
+    if hasattr(args, 'input') and args.input:
+        samples = ['samples/CT-brain.dcm', 'samples/CT-chest.dcm', 'samples/CT-ankle.dcm']
+        example = next((s for s in samples if s == args.input), None)
+        if not example:
+            console.print(f'\n[dim]Try: python main.py reconstruct --input samples/CT-brain.dcm --compare[/]')
 
 
 # ── Subcommand: validate ──────────────────────────────────────────────
@@ -199,18 +209,20 @@ def cmd_interactive(args=None):
     while True:
         console.print()
         console.print('[bold]Menu:[/]')
-        console.print('  [1] Reconstruct (32×32)')
+        console.print('  [1] Reconstruct (Shepp-Logan phantom)')
         console.print('  [2] Reconstruct with refinement')
-        console.print('  [3] Validate — Forward Model')
-        console.print('  [4] Validate — LU Solver')
-        console.print('  [5] Validate — Reconstruction')
-        console.print('  [6] Validate — Noise Robustness')
-        console.print('  [7] Validate — All')
-        console.print('  [8] Noise sweep')
-        console.print('  [9] Project info')
+        console.print('  [3] Reconstruct from DICOM sample')
+        console.print('  [4] Validate — Forward Model')
+        console.print('  [5] Validate — LU Solver')
+        console.print('  [6] Validate — Reconstruction')
+        console.print('  [7] Validate — Noise Robustness')
+        console.print('  [8] Validate — All')
+        console.print('  [9] Noise sweep')
+        console.print(' [10] Project info')
         console.print('  [0] Exit')
 
-        choice = Prompt.ask('[bold yellow]Select[/]', choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+        choices = [str(i) for i in range(0, 11)]
+        choice = Prompt.ask('[bold yellow]Select[/]', choices=choices)
 
         if choice == '0':
             console.print('[green]Goodbye.[/]')
@@ -242,34 +254,34 @@ def cmd_interactive(args=None):
                 t.add_row(k, str(v))
             console.print(t)
 
-        elif choice == '3':
+        elif choice == '4':
             size = IntPrompt.ask('Phantom size', default=32)
             with console.status('[bold green]Validating forward model...'):
                 pairs, _ = validate_forward_model(size)
             t, p, c = _result_table('[bold]Forward Model[/]', pairs)
             console.print(t)
 
-        elif choice == '4':
+        elif choice == '5':
             with console.status('[bold green]Validating LU solver...'):
                 pairs = validate_lu_solver()
             t, p, c = _result_table('[bold]LU Solver[/]', pairs)
             console.print(t)
 
-        elif choice == '5':
+        elif choice == '6':
             size = IntPrompt.ask('Phantom size', default=32)
             with console.status('[bold green]Validating reconstruction...'):
                 pairs = validate_reconstruction(size)
             t, p, c = _result_table('[bold]Reconstruction[/]', pairs)
             console.print(t)
 
-        elif choice == '6':
+        elif choice == '7':
             size = IntPrompt.ask('Phantom size', default=32)
             with console.status('[bold green]Validating noise robustness...'):
                 pairs = validate_noise_robustness(size)
             t, p, c = _result_table('[bold]Noise Robustness[/]', pairs)
             console.print(t)
 
-        elif choice == '7':
+        elif choice == '8':
             with console.status('[bold green]Running all validations...'):
                 all_results = run_all()
             total_pass = total_count = 0
@@ -279,7 +291,7 @@ def cmd_interactive(args=None):
                 total_pass += p; total_count += c
             console.print(f'\n[bold]Total:[/] {total_pass}/{total_count} passed')
 
-        elif choice == '8':
+        elif choice == '9':
             from src.noise import noise_robustness_test
             levels_input = Prompt.ask('Noise levels (%)', default='0 1 5 10')
             noise_levels = [float(x) / 100.0 for x in levels_input.split()]
@@ -296,7 +308,7 @@ def cmd_interactive(args=None):
                           f'{m["psnr"]:.2f} dB', f'{m["ssim"]:.4f}')
             console.print(t)
 
-        elif choice == '9':
+        elif choice == '10':
             cmd_info()
 
 
@@ -309,6 +321,7 @@ def main():
         epilog=(
             'Examples:\n'
             '  python main.py reconstruct --size 32\n'
+            '  python main.py reconstruct --input samples/CT-brain.dcm --compare\n'
             '  python main.py reconstruct --size 32 --refine --output result.png\n'
             '  python main.py validate --all\n'
             '  python main.py validate --phase 2\n'
@@ -325,6 +338,12 @@ def main():
     r.add_argument('--refine', action='store_true', help='Use iterative refinement')
     r.add_argument('--method', choices=['auto', 'sparse', 'dense'], default='auto',
                    help='Solver method (default: auto)')
+    r.add_argument('--input', '-i', default=None,
+                   help='Path to DICOM or image file (default: Shepp-Logan phantom)')
+    r.add_argument('--compare', '-c', default=None,
+                   help='Save comparison plot (4-panel: truth, recon, error, sinogram)')
+    r.add_argument('--save-metrics', '-m', default=None,
+                   help='Export metrics to JSON file')
     r.add_argument('--output', '-o', help='Save plot to file')
 
     # validate

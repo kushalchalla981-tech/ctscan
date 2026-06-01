@@ -1,5 +1,6 @@
-*.png
 __pycache__/
 .pytest_cache/
-.sixth/
 *.pyc
+*.png
+*.json
+.sixth/

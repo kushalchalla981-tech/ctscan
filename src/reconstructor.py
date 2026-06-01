@@ -1,6 +1,7 @@
 """Main CT reconstruction pipeline using LU decomposition."""
 
 import sys
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from src.phantom import shepp_logan
@@ -12,102 +13,96 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
-def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'auto'):
+def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'auto',
+                input_image: str = None, compare_path: str = None,
+                save_metrics_path: str = None):
     """
     Full CT reconstruction pipeline.
-    
+
     Args:
         size: Phantom dimension
         use_refinement: Apply iterative refinement
         method: Solver method ('auto', 'sparse', 'dense')
-        
+        input_image: Path to DICOM or raster image to use as ground truth
+        compare_path: Save side-by-side comparison plot to this path
+        save_metrics_path: Save metrics JSON to this path
+
     Returns:
         Dictionary with reconstruction results
     """
-    print(f"=== CT RECONSTRUCTION (size={size}) ===\n")
-    
-    # Step 1: Generate phantom and forward model
-    print("1. Building forward model...")
-    A, b, x_true = build_system(size)
+    source_label = 'Shepp-Logan Phantom'
+    if input_image:
+        from src.loader import load_image
+        x_true = load_image(input_image, size).flatten()
+        source_label = input_image
+    else:
+        A, b, x_true = build_system(size)
+
     phantom = x_true.reshape(size, size)
-    
-    print(f"   ✓ A: {A.shape}, sparsity: {get_sparsity(A):.2%}")
-    print(f"   ✓ b: {b.shape}")
-    print(f"   ✓ Memory: {A.data.nbytes / 1024**2:.2f} MB")
-    
-    # Step 2: Solve Ax = b
-    print(f"\n2. Solving Ax = b using LU decomposition...")
+
+    print(f"=== CT RECONSTRUCTION (size={size}) ===\n")
+    print(f"Source: {source_label}")
+
+    if not input_image:
+        print(f"\n1. Building forward model...")
+        print(f"   A: {A.shape}, sparsity: {get_sparsity(A):.2%}")
+        print(f"   b: {b.shape}")
+        print(f"   Memory: {A.data.nbytes / 1024**2:.2f} MB")
+    else:
+        print(f"\n1. Building forward model from input image...")
+        A, b, _ = build_system(size)
+        b = A @ x_true
+        print(f"   A: {A.shape}, sparsity: {get_sparsity(A):.2%}")
+        print(f"   b: {b.shape}")
+
+    print(f"\n2. Solving Ax = b...")
     x_rec, info = solve_lu(A, b, method=method)
-    
-    print(f"   ✓ Method: {info['method']} -> {info['factorization']}")
-    print(f"   ✓ Initial residual: {info['residual']:.2e}")
-    
-    # Step 3: Optional refinement
+    print(f"   Method: {info['method']} -> {info['factorization']}")
+    print(f"   Initial residual: {info['residual']:.2e}")
+
     if use_refinement:
         print(f"\n3. Applying iterative refinement...")
         x_rec, ref_info = iterative_refinement(A, b, x_rec, max_iter=3)
-        print(f"   ✓ Iterations: {ref_info['iterations']}")
-        print(f"   ✓ Final residual: {ref_info['final_residual']:.2e}")
+        print(f"   Iterations: {ref_info['iterations']}")
+        print(f"   Final residual: {ref_info['final_residual']:.2e}")
         info['residual'] = ref_info['final_residual']
-    
-    # Step 4: Compute metrics
-    print(f"\n{'4' if use_refinement else '3'}. Computing quality metrics...")
+
+    step = 4 if use_refinement else 3
+    print(f"\n{step}. Computing quality metrics...")
     metrics = compute_metrics(x_true, x_rec, A, b)
     ssim_val = ssim(x_true, x_rec, size)
     metrics['ssim'] = ssim_val
-    
-    print(f"   ✓ RMSE: {metrics['rmse']:.4f}")
-    print(f"   ✓ PSNR: {metrics['psnr']:.2f} dB")
-    print(f"   ✓ SSIM: {metrics['ssim']:.4f}")
-    print(f"   ✓ Relative error: {metrics['relative_error']:.4f}")
-    print(f"   ✓ Residual: {metrics['residual']:.2e}")
-    
-    # Step 5: Visualize
-    print(f"\n{'5' if use_refinement else '4'}. Generating visualizations...")
+    metrics['source'] = source_label
+    if use_refinement:
+        metrics['refinement_iterations'] = ref_info['iterations']
+        metrics['refinement_final_residual'] = ref_info['final_residual']
+
+    print(f"   RMSE: {metrics['rmse']:.4f}")
+    print(f"   PSNR: {metrics['psnr']:.2f} dB")
+    print(f"   SSIM: {metrics['ssim']:.4f}")
+    print(f"   Relative error: {metrics['relative_error']:.4f}")
+    print(f"   Residual: {metrics['residual']:.2e}")
+
     reconstruction = x_rec.reshape(size, size)
     error_map = np.abs(phantom - reconstruction)
-    
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    
-    # Ground truth
-    im0 = axes[0, 0].imshow(phantom, cmap='gray', vmin=0, vmax=1)
-    axes[0, 0].set_title('Ground Truth Phantom')
-    axes[0, 0].axis('off')
-    plt.colorbar(im0, ax=axes[0, 0], fraction=0.046)
-    
-    # Reconstruction
-    im1 = axes[0, 1].imshow(reconstruction, cmap='gray', vmin=0, vmax=1)
-    axes[0, 1].set_title(f'LU Reconstruction\nRMSE={metrics["rmse"]:.4f}')
-    axes[0, 1].axis('off')
-    plt.colorbar(im1, ax=axes[0, 1], fraction=0.046)
-    
-    # Error map
-    im2 = axes[1, 0].imshow(error_map, cmap='hot', vmin=0, vmax=error_map.max())
-    axes[1, 0].set_title(f'Absolute Error\nMax={error_map.max():.4f}')
-    axes[1, 0].axis('off')
-    plt.colorbar(im2, ax=axes[1, 0], fraction=0.046)
-    
-    # Sinogram
-    sinogram = b.reshape(-1, int(size * 1.4))
-    im3 = axes[1, 1].imshow(sinogram, cmap='gray', aspect='auto')
-    axes[1, 1].set_title('Sinogram (Projection Data)')
-    axes[1, 1].set_xlabel('Detector')
-    axes[1, 1].set_ylabel('Angle')
-    plt.colorbar(im3, ax=axes[1, 1], fraction=0.046)
-    
-    plt.tight_layout()
-    filename = 'phase3_reconstruction.png'
-    plt.savefig(filename, dpi=150, bbox_inches='tight')
-    print(f"   ✓ Saved: {filename}")
-    
+
+    if compare_path:
+        _save_comparison(phantom, reconstruction, error_map, b, metrics, size, compare_path)
+
+    if save_metrics_path:
+        serializable = {k: float(v) if isinstance(v, (np.floating,)) else v
+                        for k, v in metrics.items()}
+        with open(save_metrics_path, 'w') as f:
+            json.dump(serializable, f, indent=2)
+        print(f"   Metrics saved: {save_metrics_path}")
+
     print("\n=== RECONSTRUCTION COMPLETE ===")
-    
-    # Success criteria check
-    print("\n=== SUCCESS CRITERIA ===")
-    print(f"✓ RMSE < 0.05: {metrics['rmse']:.4f} {'✓' if metrics['rmse'] < 0.05 else '✗'}")
-    print(f"✓ PSNR > 25 dB: {metrics['psnr']:.2f} {'✓' if metrics['psnr'] > 25 else '✗'}")
-    print(f"✓ Residual < 1e-3: {metrics['residual']:.2e} {'✓' if metrics['residual'] < 1e-3 else '✗'}")
-    
+    if not input_image:
+        print(f"\nSuccess Criteria:")
+        print(f"RMSE < 0.05: {metrics['rmse']:.4f} {'OK' if metrics['rmse'] < 0.05 else 'FAIL'}")
+        print(f"PSNR > 25 dB: {metrics['psnr']:.2f} {'OK' if metrics['psnr'] > 25 else 'FAIL'}")
+        print(f"Residual < 1e-3: {metrics['residual']:.2e} {'OK' if metrics['residual'] < 1e-3 else 'FAIL'}")
+
     return {
         'phantom': phantom,
         'reconstruction': reconstruction,
@@ -115,6 +110,36 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
         'metrics': metrics,
         'solver_info': info
     }
+
+
+def _save_comparison(phantom, reconstruction, error_map, b, metrics, size, path):
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+    im0 = axes[0, 0].imshow(phantom, cmap='gray', vmin=0, vmax=1)
+    axes[0, 0].set_title('Ground Truth')
+    axes[0, 0].axis('off')
+    plt.colorbar(im0, ax=axes[0, 0], fraction=0.046)
+
+    im1 = axes[0, 1].imshow(reconstruction, cmap='gray', vmin=0, vmax=1)
+    axes[0, 1].set_title(f'Reconstruction\nRMSE={metrics["rmse"]:.4f}')
+    axes[0, 1].axis('off')
+    plt.colorbar(im1, ax=axes[0, 1], fraction=0.046)
+
+    im2 = axes[1, 0].imshow(error_map, cmap='hot', vmin=0, vmax=error_map.max())
+    axes[1, 0].set_title(f'Absolute Error\nMax={error_map.max():.4f}')
+    axes[1, 0].axis('off')
+    plt.colorbar(im2, ax=axes[1, 0], fraction=0.046)
+
+    sinogram = b.reshape(-1, int(size * 1.4))
+    im3 = axes[1, 1].imshow(sinogram, cmap='gray', aspect='auto')
+    axes[1, 1].set_title('Sinogram (Projection Data)')
+    axes[1, 1].set_xlabel('Detector')
+    axes[1, 1].set_ylabel('Angle')
+    plt.colorbar(im3, ax=axes[1, 1], fraction=0.046)
+
+    plt.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"   Comparison saved: {path}")
 
 
 if __name__ == "__main__":

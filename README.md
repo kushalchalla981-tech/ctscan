@@ -6,10 +6,10 @@ Educational prototype demonstrating medical image reconstruction from CT project
 
 ```bash
 pip install -r requirements.txt
-python main.py reconstruct          # 32×32 reconstruction
-python main.py reconstruct --refine # with iterative refinement
-python main.py info                 # system info
-python main.py interactive          # menu-driven TUI
+python main.py reconstruct --input samples/CT-brain.dcm --compare
+python main.py reconstruct --refine
+python main.py interactive
+python main.py info
 ```
 
 ## CLI Reference
@@ -24,8 +24,11 @@ python main.py interactive          # menu-driven TUI
 
 ### `reconstruct`
 
-```
-python main.py reconstruct --size 32 --refine --method auto --output result.png
+```bash
+# Synthetic phantom
+python main.py reconstruct --size 32 --refine --output result.png
+# Real DICOM scan
+python main.py reconstruct --input samples/CT-brain.dcm --compare --save-metrics results.json
 ```
 
 | Flag | Default | Description |
@@ -33,11 +36,14 @@ python main.py reconstruct --size 32 --refine --method auto --output result.png
 | `--size` | 32 | Phantom dimension (pixels) |
 | `--refine` | off | Apply iterative refinement |
 | `--method` | auto | Solver: auto, sparse, or dense |
-| `--output` / `-o` | none | Save visualization to file |
+| `--input` / `-i` | none | Path to DICOM or image file |
+| `--compare` / `-c` | none | Save 4-panel comparison plot |
+| `--save-metrics` / `-m` | none | Export metrics to JSON |
+| `--output` / `-o` | none | Save final plot to file |
 
 ### `validate`
 
-```
+```bash
 python main.py validate --all
 python main.py validate --phase 2
 ```
@@ -50,7 +56,7 @@ python main.py validate --phase 2
 
 ### `noise`
 
-```
+```bash
 python main.py noise --levels 0 1 5 10 20 --regularize --plot noise.png
 ```
 
@@ -63,13 +69,24 @@ python main.py noise --levels 0 1 5 10 20 --regularize --plot noise.png
 
 ### `interactive`
 
-Launches a numbered menu for quick access to all pipelines without CLI flags.
+Launches a numbered menu with options for phantom/DICOM reconstruction, validations, noise sweep, and project info — no flags needed.
+
+## Samples
+
+Three public-domain CT DICOM files are included in `samples/`:
+
+| File | Anatomy | Source |
+|---|---|---|
+| `CT-brain.dcm` | Head | CT-MONO2-16-brain (Barre's Collection) |
+| `CT-chest.dcm` | Chest | CT-MONO2-16-chest (Barre's Collection) |
+| `CT-ankle.dcm` | Ankle | CT-MONO2-16-ankle (Barre's Collection) |
 
 ## Architecture
 
 ```
 main.py                  ← Single entry point (argparse + rich)
 src/
+├── loader.py            DICOM/raster image loader
 ├── phantom.py           Shepp-Logan phantom generator
 ├── projector.py         Parallel-beam ray tracer → sparse A + sinogram b
 ├── lud_solver.py        LU decomposition with pivoting + LSQR
@@ -77,11 +94,10 @@ src/
 ├── reconstructor.py     Full reconstruction pipeline
 ├── noise.py             Gaussian/Poisson noise + robustness testing
 └── validate.py          Consolidated validation suite
-tests/
-├── test_phase1.py       6 tests — forward model
-├── test_phase2.py       7 tests — LU solver
-├── test_phase3.py       6 tests — reconstruction
-└── test_phase4.py       12 tests — noise robustness
+samples/                 DICOM example files
+tests/                   31 unit tests
+demo.ipynb               Jupyter notebook walkthrough
+COLLEGE_REPORT.md        Full project report
 ```
 
 ## Results (32×32, clean)
@@ -102,10 +118,16 @@ tests/
 | 10% | 0.467 | 12.1 dB | 0.252 |
 | 20% | 0.922 | 10.6 dB | 0.080 |
 
-> Regularization adds slight bias at 0% noise but is essential for robustness.
+> Regularization adds slight bias at 0% noise (RMSE 0.083 vs 0.022) but is essential for robustness. Unregularized LSQR catastrophically fails at even 1% noise.
 
 ## Testing
 
 ```bash
 pytest tests/ -v
 ```
+
+## References
+
+- Shepp & Logan (1974). "The Fourier reconstruction of a head section."
+- Paige & Saunders (1982). "LSQR: An algorithm for sparse linear equations."
+- Barre's DICOM Collection: https://barre.dev/medical/samples/
