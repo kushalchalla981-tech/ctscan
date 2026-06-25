@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CT Reconstruction using LU Decomposition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    background: #0a0a0f;
+    color: #e8e8ed;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  .presentation {
+    height: 100vh;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+  }
+  .presentation::-webkit-scrollbar { display: none; }
+
+  .slide {
+    height: 100vh;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── Background Effects ── */
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 30% 50%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 20%, rgba(245, 158, 11, 0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(16, 185, 129, 0.03) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .slide-content {
+    max-width: 1100px;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Typography ── */
+  h1 {
+    font-size: clamp(2.5rem, 5vw, 4.2rem);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #f0f0f5 0%, #a5b4fc 50%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  h2 {
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #e8e8ed 0%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #fbbf24;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+  }
+  p, li {
+    font-size: clamp(1rem, 1.6vw, 1.2rem);
+    line-height: 1.7;
+    color: #a1a1aa;
+    font-weight: 400;
+  }
+  .accent { color: #fbbf24; }
+  .accent-purple { color: #a5b4fc; }
+  .accent-green { color: #34d399; }
+  .accent-red { color: #f87171; }
+  .text-sm { font-size: 0.9rem; }
+  .text-xs { font-size: 0.8rem; }
+  .text-center { text-align: center; }
+  .mt-8 { margin-top: 32px; }
+  .mt-6 { margin-top: 24px; }
+  .mt-4 { margin-top: 16px; }
+  .mb-4 { margin-bottom: 16px; }
+  .mb-6 { margin-bottom: 24px; }
+  .op-70 { opacity: 0.7; }
+
+  /* ── Grid / Layout ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+  }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 16px;
+  }
+
+  .card {
+    background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 28px;
+    backdrop-filter: blur(12px);
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .card:hover {
+    border-color: rgba(251, 191, 36, 0.2);
+    transform: translateY(-2px);
+  }
+  .card-icon {
+    font-size: 1.8rem;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .card h4 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #e8e8ed;
+    margin-bottom: 8px;
+  }
+  .card p {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: #8a8a9a;
+  }
+
+  /* ── Stats ── */
+  .stat {
+    text-align: center;
+    padding: 20px 16px;
+  }
+  .stat-value {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .stat-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8a8a9a;
+    margin-top: 6px;
+  }
+  .stat-desc {
+    font-size: 0.75rem;
+    color: #6a6a7a;
+    margin-top: 4px;
+  }
+
+  /* ── Tables ── */
+  .metric-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  .metric-table th {
+    text-align: left;
+    padding: 10px 16px;
+    font-weight: 600;
+    color: #8a8a9a;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .metric-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: #c8c8d0;
+  }
+  .metric-table tr:last-child td { border-bottom: none; }
+  .metric-table .highlight td { color: #fbbf24; font-weight: 600; }
+  .metric-table .green td { color: #34d399; }
+
+  /* ── Code ── */
+  .code-block {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 20px 24px;
+    color: #c8c8d0;
+  }
+  .code-block .kw { color: #c084fc; }
+  .code-block .fn { color: #60a5fa; }
+  .code-block .str { color: #34d399; }
+  .code-block .cm { color: #6a6a7a; font-style: italic; }
+  .code-block .num { color: #fbbf24; }
+
+  /* ── Math ── */
+  .math-block {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1rem, 1.8vw, 1.4rem);
+    font-weight: 500;
+    text-align: center;
+    padding: 20px 24px;
+    background: rgba(251, 191, 36, 0.04);
+    border: 1px solid rgba(251, 191, 36, 0.12);
+    border-radius: 12px;
+    color: #f0f0f5;
+    letter-spacing: 0.02em;
+  }
+  .math-block .hl { color: #fbbf24; }
+  .math-block .dim { color: #6a6a7a; }
+  .math-inline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95em;
+    color: #fbbf24;
+  }
+
+  /* ── Nav dots ── */
+  .nav-dots {
+    position: fixed;
+    right: 28px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+  .nav-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .nav-dot.active {
+    background: #fbbf24;
+    border-color: #fbbf24;
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
+  }
+  .nav-dot:hover { border-color: rgba(255,255,255,0.4); }
+
+  /* ── Slide number ── */
+  .slide-number {
+    position: absolute;
+    bottom: 32px;
+    right: 48px;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.15);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    z-index: 1;
+  }
+
+  /* ── Arrow hint ── */
+  .scroll-hint {
+    position: absolute;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.12);
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    animation: bounce 2s infinite;
+    z-index: 1;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(6px); }
+  }
+
+  /* ── Tag badge ── */
+  .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .tag-blue { background: rgba(96, 165, 250, 0.12); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.2); }
+  .tag-amber { background: rgba(251, 191, 36, 0.12); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+  .tag-green { background: rgba(52, 211, 153, 0.12); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
+  .tag-purple { background: rgba(192, 132, 252, 0.12); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.2); }
+  .tag-red { background: rgba(248, 113, 113, 0.12); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
+
+  .tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+  /* ── Highlight box ── */
+  .highlight-box {
+    border-left: 3px solid #fbbf24;
+    padding: 16px 20px;
+    background: rgba(251, 191, 36, 0.04);
+    border-radius: 0 12px 12px 0;
+    margin: 16px 0;
+  }
+  .highlight-box p { color: #d4d4d8; font-size: 0.95rem; }
+
+  /* ── Formula accent ── */
+  .formula-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+
+  /* ── Glass divider ── */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    margin: 24px 0;
+  }
+
+  /* ── Subtitle ── */
+  .subtitle {
+    font-size: clamp(1.1rem, 2vw, 1.5rem);
+    color: #8a8a9a;
+    font-weight: 400;
+    line-height: 1.5;
+    margin-top: 12px;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .slide { padding: 40px 28px; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; gap: 16px; }
+    h1 { font-size: clamp(1.8rem, 7vw, 2.5rem); }
+    h2 { font-size: clamp(1.4rem, 5vw, 1.8rem); }
+    .nav-dots { right: 14px; }
+    .slide-number { right: 20px; bottom: 20px; }
+  }
+
+  /* ── Key insight ── */
+  .insight {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.06), rgba(99, 102, 241, 0.04));
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    border-radius: 16px;
+    padding: 24px 28px;
+    margin-top: 20px;
+  }
+  .insight p { color: #d4d4d8; font-size: 0.95rem; }
+  .insight strong { color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<div class="nav-dots">
+  <div class="nav-dot active" data-slide="0"></div>
+  <div class="nav-dot" data-slide="1"></div>
+  <div class="nav-dot" data-slide="2"></div>
+  <div class="nav-dot" data-slide="3"></div>
+  <div class="nav-dot" data-slide="4"></div>
+  <div class="nav-dot" data-slide="5"></div>
+  <div class="nav-dot" data-slide="6"></div>
+  <div class="nav-dot" data-slide="7"></div>
+  <div class="nav-dot" data-slide="8"></div>
+</div>
+
+<div class="presentation" id="presentation">
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 1 — TITLE
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="0">
+    <div class="slide-content text-center">
+      <div class="tags" style="justify-content:center;">
+        <span class="tag tag-amber">Linear Algebra</span>
+        <span class="tag tag-blue">Medical Imaging</span>
+        <span class="tag tag-purple">Inverse Problems</span>
+      </div>
+      <h1 style="margin-top:24px;">CT Reconstruction<br>using LU Decomposition</h1>
+      <p class="subtitle" style="max-width:700px;margin:20px auto 0;">
+        From X-ray projections to image reconstruction —<br>
+        a first-principles implementation in Python
+      </p>
+      <div style="margin-top:48px;display:flex;gap:32px;justify-content:center;flex-wrap:wrap;">
+        <div><span class="stat-value accent-purple">4</span><div class="stat-label">Phases</div></div>
+        <div><span class="stat-value accent-green">23</span><div class="stat-label">Source Files</div></div>
+        <div><span class="stat-value accent">31</span><div class="stat-label">Unit Tests</div></div>
+        <div><span class="stat-value" style="color:#f87171;">1.2k</span><div class="stat-label">Lines of Code</div></div>
+      </div>
+    </div>
+    <div class="slide-number">01 / 09</div>
+    <div class="scroll-hint">Scroll to explore →</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 2 — THE BIG PICTURE
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="1">
+    <div class="slide-content">
+      <h3>The Big Picture</h3>
+      <h2>From Measurements to Image</h2>
+      <p style="max-width:800px;margin-bottom:32px;">
+        CT scanners measure X-ray attenuation from multiple angles. The challenge:
+        recover the internal image from these projections — a classic <strong class="accent">linear inverse problem</strong>.
+      </p>
+
+      <div class="math-block" style="margin-bottom:32px;">
+        <span class="dim">Given measurements</span> <span class="hl">A</span> · <span class="hl">x</span> = <span class="hl">b</span>
+        <span class="dim">&nbsp;&nbsp;→&nbsp;&nbsp; Find</span> <span class="hl">x</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <span class="card-icon">🔵</span>
+          <h4>The Forward Problem <span class="accent-green text-xs" style="margin-left:8px;">Easy</span></h4>
+          <p>Given an image <span class="math-inline">x</span>, simulate the X-ray beams.
+          Each ray's path through the pixels defines a row in matrix <span class="math-inline">A</span>.
+          The result is a sinogram <span class="math-inline">b</span> — the measurements a real detector would record.</p>
+        </div>
+        <div class="card">
+          <span class="card-icon">🔴</span>
+          <h4>The Inverse Problem <span class="tag tag-red text-xs" style="margin-left:8px;">Hard</span></h4>
+          <p>Given the sinogram <span class="math-inline">b</span> and system matrix <span class="math-inline">A</span>,
+          recover the original image <span class="math-inline">x</span>. This is <strong class="accent-red">ill-posed</strong>:
+          small measurement errors amplify into large reconstruction errors.</p>
+        </div>
+      </div>
+
+      <div class="insight">
+        <p><strong>Key insight:</strong> The system is <strong>overdetermined</strong> (1,408 equations, 1,024 unknowns)
+        and <strong>91% sparse</strong> — most matrix entries are zero because each X-ray beam
+        passes through only a fraction of pixels. This sparsity is the key to efficient solving.</p>
+      </div>
+    </div>
+    <div class="slide-number">02 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 3 — THE FORWARD MODEL
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="2">
+    <div class="slide-content">
+      <h3>Phase 1</h3>
+      <h2>The Forward Model</h2>
+
+      <div class="grid-3">
+        <div class="card">
+          <span class="card-icon">🧠</span>
+          <h4>1. Phantom Generation</h4>
+          <p>The <span class="math-inline">32 × 32</span> Shepp-Logan phantom — a standard test image
+          simulating a cross-section of a human head. Built from 10 ellipses with
+          varying intensities for skull, brain, and features.</p>
+          <div class="mt-4 op-70 text-sm">→ <span class="accent">10 ellipses</span>, normalized to [0, 1]</div>
+        </div>
+        <div class="card">
+          <span class="card-icon">📐</span>
+          <h4>2. Ray Tracing</h4>
+          <p>Parallel-beam geometry: <span class="math-inline">44 angles × 32 detectors</span> = 1,408 rays.
+          Each ray's intersection length with each pixel becomes one entry in the system matrix.</p>
+          <div class="mt-4 op-70 text-sm">→ <span class="accent">44</span> angles (0°–180°), <span class="accent">32</span> detectors</div>
+        </div>
+        <div class="card">
+          <span class="card-icon">📊</span>
+          <h4>3. Sinogram Output</h4>
+          <p>The measurement vector <span class="math-inline">b</span> — the "shadow" cast by the
+          phantom. In a real CT scanner, this is what the detector array records
+          as the gantry rotates around the patient.</p>
+          <div class="mt-4 op-70 text-sm">→ <span class="accent">1,408</span> measurements total</div>
+        </div>
+      </div>
+
+      <div class="grid-3 mt-6" style="grid-template-columns:1fr 1fr 1fr;">
+        <div class="stat card">
+          <div class="stat-value accent-purple">1,408</div>
+          <div class="stat-label">Equations (rows)</div>
+          <div class="stat-desc">More equations than unknowns</div>
+        </div>
+        <div class="stat card">
+          <div class="stat-value accent">1,024</div>
+          <div class="stat-label">Unknowns (columns)</div>
+          <div class="stat-desc">32 × 32 = 1,024 pixels</div>
+        </div>
+        <div class="stat card">
+          <div class="stat-value accent-green">91%</div>
+          <div class="stat-label">Sparsity</div>
+          <div class="stat-desc">~127k non-zero entries</div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-number">03 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 4 — THE MATH
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="3">
+    <div class="slide-content">
+      <h3>Phase 2</h3>
+      <h2>The Mathematics of Solving A·x = b</h2>
+
+      <div class="grid-2" style="margin-bottom:24px;">
+        <div>
+          <div class="card" style="height:100%;">
+            <h4><span class="accent-purple">▸</span> Least-Squares Solution</h4>
+            <p style="font-size:0.9rem;">Since <span class="math-inline">A</span> is not square,
+            we minimize the squared error:</p>
+            <div class="math-block mt-4" style="font-size:1rem;">
+              <span class="hl">x̂</span> = argmin ‖<span class="hl">A</span>·<span class="hl">x</span> − <span class="hl">b</span>‖²
+            </div>
+            <p class="mt-4 text-sm op-70">The solution satisfies the <strong>normal equations</strong>:
+            <span class="math-inline text-sm">(Aᵀ·A)·x = Aᵀ·b</span></p>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="height:100%;">
+            <h4><span class="accent-green">▸</span> Two Solver Strategies</h4>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
+              <div style="background:rgba(96,165,250,0.06);border-radius:10px;padding:14px 16px;border:1px solid rgba(96,165,250,0.1);">
+                <strong style="color:#60a5fa;">Dense LU</strong>
+                <p class="text-sm mt-4" style="color:#a1a1aa;">Factor <span class="math-inline text-sm">Aᵀ·A</span> into P·L·U
+                → forward &amp; back substitution. Exact but expensive for large systems.</p>
+              </div>
+              <div style="background:rgba(52,211,153,0.06);border-radius:10px;padding:14px 16px;border:1px solid rgba(52,211,153,0.1);">
+                <strong style="color:#34d399;">Sparse LSQR</strong>
+                <p class="text-sm mt-4" style="color:#a1a1aa;">Iterative method (Golub-Kahan bidiagonalization).
+                Works directly with sparse <span class="math-inline text-sm">A</span> — no dense
+                <span class="math-inline text-sm">Aᵀ·A</span> needed.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-3" style="grid-template-columns:repeat(3, 1fr);gap:16px;">
+        <div class="stat card">
+          <div class="stat-value accent">Iterative Refinement</div>
+          <div class="stat-label" style="font-size:0.7rem;letter-spacing:0.04em;">Correction step</div>
+          <div class="stat-desc">x̂ₖ₊₁ = x̂ₖ + A†·(b − A·x̂ₖ)</div>
+        </div>
+        <div class="stat card">
+          <div class="stat-value accent-green">Auto-Select</div>
+          <div class="stat-label" style="font-size:0.7rem;letter-spacing:0.04em;">Dense ↔ Sparse</div>
+          <div class="stat-desc">Chooses best method based on size</div>
+        </div>
+        <div class="stat card">
+          <div class="stat-value accent-purple">Tikhonov Reg.</div>
+          <div class="stat-label" style="font-size:0.7rem;letter-spacing:0.04em;">Noise dampening</div>
+          <div class="stat-desc">min ‖A·x − b‖² + λ²‖x‖²</div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-number">04 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 5 — KEY FORMULAE
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="4">
+    <div class="slide-content">
+      <h3>Formulary</h3>
+      <h2>Key Formulae Used in This Project</h2>
+      <p class="mb-6" style="max-width:700px;">
+        Every formula below maps directly to a source file in the codebase.
+      </p>
+
+      <div class="grid-2" style="gap:20px;">
+
+        <!-- Column 1 -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+
+          <div class="card">
+            <h4 style="color:#a5b4fc;">▸ Forward Model</h4>
+            <div class="math-block" style="font-size:1rem;padding:12px 16px;">
+              <span class="hl">A</span> · <span class="hl">x</span> = <span class="hl">b</span>
+            </div>
+            <div class="math-block mt-4" style="font-size:1rem;padding:12px 16px;">
+              <span class="dim">min</span> ‖<span class="hl">A</span>·<span class="hl">x</span> − <span class="hl">b</span>‖²
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              <span class="accent">projector.py</span> — builds sparse <strong>A</strong>, <strong>b</strong><br>
+              <span class="accent">lud_solver.py</span> — all solver strategies
+            </p>
+          </div>
+
+          <div class="card">
+            <h4 style="color:#34d399;">▸ LU Decomposition</h4>
+            <div class="math-block" style="font-size:1rem;padding:12px 16px;">
+              <span class="hl">P</span>·<span class="hl">A</span> = <span class="hl">L</span>·<span class="hl">U</span>
+            </div>
+            <div class="math-block mt-4" style="font-size:0.95rem;padding:12px 16px;">
+              <span class="hl">L</span>·<span class="hl">y</span> = <span class="hl">P</span>·<span class="hl">b</span>
+              <span class="dim"> &nbsp;⟶&nbsp; </span>
+              <span class="hl">U</span>·<span class="hl">x</span> = <span class="hl">y</span>
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              <span class="accent">lud_solver.py:113–153</span> — dense PA=LU with partial pivoting,<br>
+              forward &amp; backward substitution
+            </p>
+          </div>
+
+          <div class="card">
+            <h4 style="color:#fbbf24;">▸ Tikhonov Regularization</h4>
+            <div class="math-block" style="font-size:1rem;padding:12px 16px;">
+              min ‖<span class="hl">A</span>·<span class="hl">x</span> − <span class="hl">b</span>‖²
+              + <span class="hl">λ</span>² · ‖<span class="hl">x</span>‖²
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              <span class="accent">lud_solver.py</span> — LSQR <strong>damp</strong> = √λ<br>
+              <span class="accent">noise.py</span> — robustness sweep (λ = 4.0 default)
+            </p>
+          </div>
+
+        </div>
+
+        <!-- Column 2 -->
+        <div style="display:flex;flex-direction:column;gap:14px;text-align:right;">
+
+          <div class="card" style="text-align:left;">
+            <h4 style="color:#f87171;">▸ Iterative Refinement</h4>
+            <div class="math-block" style="font-size:1rem;padding:12px 16px;text-align:center;">
+              <span class="hl">r</span>ₖ = <span class="hl">b</span> − <span class="hl">A</span>·<span class="hl">x</span>ₖ
+            </div>
+            <div class="math-block mt-4" style="font-size:1rem;padding:12px 16px;text-align:center;">
+              <span class="hl">x</span>ₖ₊₁ = <span class="hl">x</span>ₖ + <span class="hl">A</span>†·<span class="hl">r</span>ₖ
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              ‖<strong>r</strong>‖ / ‖<strong>b</strong>‖ &lt; 10⁻¹⁰ (max 3 iterations) — <span class="accent">lud_solver.py:156–191</span>
+            </p>
+          </div>
+
+          <div class="card" style="text-align:left;">
+            <h4 style="color:#60a5fa;">▸ Quality Metrics</h4>
+            <div class="math-block" style="font-size:0.95rem;padding:12px 16px;text-align:center;">
+              <span class="hl">RMSE</span> = √(mean((x̂ − x)²))
+            </div>
+            <div class="math-block mt-4" style="font-size:0.95rem;padding:12px 16px;text-align:center;">
+              <span class="hl">PSNR</span> = 20 · log₁₀(max / RMSE)
+            </div>
+            <div class="math-block mt-4" style="font-size:0.85rem;padding:12px 16px;line-height:1.4;text-align:center;">
+              <span class="hl">SSIM</span> = (2μₓμᵧ + C₁)(2σₓᵧ + C₂) /
+              (μₓ² + μᵧ² + C₁)(σₓ² + σᵧ² + C₂)
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              RMSE, PSNR, SSIM, relative error, forward residual — <span class="accent">metrics.py:23–76</span>
+            </p>
+          </div>
+
+          <div class="card" style="text-align:left;">
+            <h4 style="color:#c084fc;">▸ Other Key Formulae</h4>
+            <div class="math-block" style="font-size:0.9rem;padding:12px 16px;text-align:center;">
+              <span class="hl">sparsity</span> = 1 − nnz/(m·n)
+            </div>
+            <div class="math-block mt-4" style="font-size:0.9rem;padding:12px 16px;text-align:center;">
+              <span class="hl">noise</span> = <span class="hl">b</span> + σ·<span class="hl">N</span>(0,1)
+              <span class="dim">, σ = noise·std(b)</span>
+            </div>
+            <p class="text-xs op-70 mt-4" style="color:#6a6a7a;">
+              Sparsity calc — <span class="accent">projector.py</span> &nbsp;|&nbsp; Gaussian &amp; Poisson — <span class="accent">noise.py</span>
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="insight" style="margin-top:16px;padding:16px 20px;">
+        <p class="text-sm">
+          <strong>18+ unique formulae</strong> across 4 phases, each linked to its source
+          implementation. See <span class="accent">src/</span> for the full mathematical detail.
+        </p>
+      </div>
+    </div>
+    <div class="slide-number">05 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 6 — ARCHITECTURE
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="5">
+    <div class="slide-content">
+      <h3>Implementation</h3>
+      <h2>Project Architecture</h2>
+
+      <div class="grid-2" style="margin-bottom:24px;">
+        <div>
+          <div class="code-block">
+            <span class="cm"># Project structure</span><br>
+            main.py<span class="cm"> &nbsp;&nbsp;&nbsp;← CLI entry point (argparse + rich)</span><br>
+            └── src/<br>
+            &nbsp;&nbsp;├── phantom.py<span class="cm"> &nbsp;&nbsp;← Shepp-Logan generator</span><br>
+            &nbsp;&nbsp;├── projector.py<span class="cm"> &nbsp;← Ray tracing → sparse A + b</span><br>
+            &nbsp;&nbsp;├── lud_solver.py<span class="cm"> ← LU + LSQR implementations</span><br>
+            &nbsp;&nbsp;├── reconstructor.py<span class="cm"> ← Full pipeline orchestrator</span><br>
+            &nbsp;&nbsp;├── metrics.py<span class="cm"> &nbsp;&nbsp;← RMSE, PSNR, SSIM</span><br>
+            &nbsp;&nbsp;├── noise.py<span class="cm"> &nbsp;&nbsp;&nbsp;&nbsp;← Gaussian noise + robustness</span><br>
+            &nbsp;&nbsp;├── loader.py<span class="cm"> &nbsp;&nbsp;&nbsp;&nbsp;← DICOM/raster loader</span><br>
+            &nbsp;&nbsp;├── validate.py<span class="cm"> &nbsp;← 4-phase validation suite</span><br>
+            &nbsp;&nbsp;└── exporter.py<span class="cm"> &nbsp;← HTML report generator</span>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="height:100%;">
+            <h4>CLI Commands</h4>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+              <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <span style="color:#c8c8d0;">reconstruct --html</span>
+                <span class="text-xs op-70">Full pipeline → HTML report</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <span style="color:#c8c8d0;">upload --html</span>
+                <span class="text-xs op-70">Your image → CT → HTML</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <span style="color:#c8c8d0;">validate --all --html</span>
+                <span class="text-xs op-70">System checks → HTML</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                <span style="color:#c8c8d0;">noise --html</span>
+                <span class="text-xs op-70">Robustness sweep → HTML</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                <span style="color:#c8c8d0;">interactive</span>
+                <span class="text-xs op-70">Menu-driven mode</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="insight">
+        <p><strong>Key design:</strong> Single entry point (<span class="math-inline">main.py</span>), modular <span class="math-inline">src/</span> package,
+        31 unit tests in <span class="math-inline">tests/</span>, and a Jupyter notebook walkthrough
+        (<span class="math-inline">demo.ipynb</span>). All commands support <span class="math-inline">--html</span> to export standalone
+        reports with embedded plots and metrics tables. DICOM support via
+        <span class="math-inline">pydicom</span> + <span class="math-inline">pylibjpeg</span>.</p>
+      </div>
+    </div>
+    <div class="slide-number">06 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 7 — RESULTS
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="6">
+    <div class="slide-content">
+      <h3>Phase 3</h3>
+      <h2>Reconstruction Quality</h2>
+      <p style="margin-bottom:28px;max-width:700px;">
+        Measured against the ground-truth phantom using three complementary metrics.
+      </p>
+
+      <div class="grid-2" style="margin-bottom:20px;">
+        <table class="metric-table card" style="padding:0;overflow:hidden;">
+          <thead>
+            <tr><th>Metric</th><th>Basic</th><th>With Refinement</th><th>Formula</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>RMSE</td><td>0.0223</td><td class="highlight">0.0012</td><td class="text-xs op-70">sqrt(mean((x̂−x)²))</td></tr>
+            <tr><td>PSNR</td><td>33.38 dB</td><td class="highlight">58.35 dB</td><td class="text-xs op-70">20·log₁₀(max/RMSE)</td></tr>
+            <tr><td>SSIM</td><td>0.995</td><td class="highlight">1.000</td><td class="text-xs op-70">Structural similarity</td></tr>
+            <tr><td>Residual</td><td>2.6×10⁻⁵</td><td class="highlight">2.3×10⁻⁷</td><td class="text-xs op-70">‖b − A·x̂‖</td></tr>
+          </tbody>
+        </table>
+
+        <div>
+          <div class="card" style="height:100%;">
+            <h4>What the Metrics Mean</h4>
+            <div style="display:flex;flex-direction:column;gap:14px;margin-top:12px;">
+              <div>
+                <strong style="color:#fbbf24;">RMSE</strong>
+                <p class="text-sm" style="color:#a1a1aa;">Average pixel error. 0.022 = 2.2% error per pixel.
+                With refinement: 0.12% — near perfect.</p>
+              </div>
+              <div>
+                <strong style="color:#60a5fa;">PSNR</strong>
+                <p class="text-sm" style="color:#a1a1aa;">Peak Signal-to-Noise Ratio. >30 dB is good;
+                >50 dB is excellent. Refinement achieves 58.35 dB.</p>
+              </div>
+              <div>
+                <strong style="color:#34d399;">SSIM</strong>
+                <p class="text-sm" style="color:#a1a1aa;">Structural Similarity — compares patterns,
+                not just pixels. 1.000 = structurally identical to ground truth.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="highlight-box">
+        <p><strong class="accent">SSIM = 1.000</strong> with iterative refinement: the reconstruction is
+        structurally indistinguishable from the original phantom when no noise is present.</p>
+      </div>
+    </div>
+    <div class="slide-number">07 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 8 — NOISE ROBUSTNESS
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="7">
+    <div class="slide-content">
+      <h3>Phase 4</h3>
+      <h2>Noise Robustness &amp; Regularization</h2>
+      <p style="margin-bottom:24px;max-width:700px;">
+        Real CT measurements are noisy. Without regularization, the inverse problem
+        amplifies noise <strong class="accent">catastrophically</strong>.
+      </p>
+
+      <div class="grid-2" style="margin-bottom:20px;">
+        <table class="metric-table card" style="padding:0;overflow:hidden;">
+          <thead>
+            <tr><th>Noise</th><th>RMSE</th><th>PSNR</th><th>SSIM</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>0%</td><td class="green">0.083</td><td class="green">21.6 dB</td><td>0.913</td></tr>
+            <tr><td>1%</td><td>0.095</td><td>20.4 dB</td><td>0.897</td></tr>
+            <tr><td>5%</td><td>0.245</td><td>14.7 dB</td><td>0.551</td></tr>
+            <tr><td>10%</td><td>0.467</td><td>12.1 dB</td><td>0.252</td></tr>
+            <tr><td>20%</td><td>0.922</td><td>10.6 dB</td><td>0.080</td></tr>
+          </tbody>
+        </table>
+
+        <div>
+          <div class="card" style="height:100%;">
+            <h4><span class="accent">⚖️</span> Tikhonov Regularization</h4>
+            <p>Instead of solving <span class="math-inline">min ‖A·x − b‖²</span>, we solve:</p>
+            <div class="math-block mt-4" style="font-size:1rem;">
+              min ‖<span class="hl">A</span>·<span class="hl">x</span> − <span class="hl">b</span>‖² + <span class="hl">λ</span>² · ‖<span class="hl">x</span>‖²
+            </div>
+            <p class="mt-4 text-sm" style="color:#a1a1aa;">The second term penalizes large solutions,
+            preventing noise amplification. Parameter <span class="math-inline">λ</span> (damp) controls
+            the <strong class="accent">bias–variance tradeoff</strong>.</p>
+            <div class="mt-6 highlight-box" style="margin:16px 0 0;padding:12px 16px;">
+              <p class="text-sm"><strong>Without regularization:</strong> RMSE jumps from 0.022 → <strong class="accent-red">2.56</strong> at just 1% noise!
+              <br><strong>With regularization:</strong> RMSE stays at 0.095 — <strong class="accent-green">27× better</strong>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-number">08 / 09</div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SLIDE 9 — SUMMARY
+       ═══════════════════════════════════════════════════════ -->
+  <section class="slide" data-index="8">
+    <div class="slide-content">
+      <h3>What We Built</h3>
+      <h2>Summary &amp; Key Takeaways</h2>
+
+      <div class="grid-2" style="margin-top:24px;">
+        <div>
+          <div class="card">
+            <h4><span class="accent">✓</span> Core Achievement</h4>
+            <p>A complete CT reconstruction pipeline from first principles:
+            Shepp-Logan phantom → ray tracing → sparse system matrix →
+            LU/LSQR solving → quality metrics → noise analysis.</p>
+          </div>
+          <div class="card mt-4">
+            <h4><span class="accent-green">✓</span> Key Results</h4>
+            <p>• RMSE <strong class="accent">0.0012</strong> with refinement (near-perfect)</p>
+            <p>• Robust up to <strong class="accent">5% noise</strong> with Tikhonov regularization</p>
+            <p>• <strong class="accent">31</strong> passing unit tests across all 4 phases</p>
+            <p>• DICOM support for real CT scan reconstruction</p>
+            <p>• <strong class="accent">HTML export</strong> with <span class="math-inline">--html</span> — standalone reports with embedded plots</p>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h4><span class="accent-purple">✓</span> What We Learned</h4>
+            <p>1. <strong class="accent">Inverse problems are ill-posed</strong> — tiny errors
+            become huge reconstruction failures.</p>
+            <p>2. <strong class="accent">Sparsity is a superpower</strong> — 91% sparse matrices
+            make iterative solvers practical.</p>
+            <p>3. <strong class="accent">Regularization is essential</strong> — bias–variance
+            tradeoff is central to all inverse problems.</p>
+            <p>4. <strong class="accent">Different tools for different jobs</strong> — LU for
+            small/dense, LSQR for large/sparse.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:28px;flex-wrap:wrap;">
+        <span class="tag tag-blue">Python</span>
+        <span class="tag tag-green">NumPy/SciPy</span>
+        <span class="tag tag-amber">Matplotlib</span>
+        <span class="tag tag-purple">scikit-image</span>
+        <span class="tag tag-red">pydicom</span>
+        <span class="tag tag-blue">pytest</span>
+      </div>
+
+      <div class="divider" style="margin:24px 0 16px;"></div>
+
+      <p class="text-center text-sm op-70" style="color:#6a6a7a;">
+        CT Reconstruction using LU Decomposition &nbsp;·&nbsp; College Project &nbsp;·&nbsp; Python
+      </p>
+    </div>
+    <div class="slide-number">09 / 09</div>
+  </section>
+
+</div>
+
+<script>
+  const presentation = document.getElementById('presentation');
+  const dots = document.querySelectorAll('.nav-dot');
+  const slides = document.querySelectorAll('.slide');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const index = entry.target.dataset.index;
+        dots.forEach(d => d.classList.toggle('active', d.dataset.slide === index));
+      }
+    });
+  }, { threshold: 0.6 });
+
+  slides.forEach(s => observer.observe(s));
+
+  dots.forEach(dot => {
+    dot.addEventListener('click', () => {
+      const index = parseInt(dot.dataset.slide);
+      const target = document.querySelector(`.slide[data-index="${index}"]`);
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const active = document.querySelector('.nav-dot.active');
+    if (!active) return;
+    const current = parseInt(active.dataset.slide);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      const next = Math.min(current + 1, slides.length - 1);
+      slides[next].scrollIntoView({ behavior: 'smooth' });
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      const prev = Math.max(current - 1, 0);
+      slides[prev].scrollIntoView({ behavior: 'smooth' });
+    }
+  });
+</script>
+
+</body>
+</html>

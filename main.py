@@ -114,6 +114,9 @@ def _show_help():
         'reconstruct', 'Run reconstruction pipeline',
         'python main.py reconstruct [options]')
     cmd_table.add_row(
+        'reconstruct-3d', '3D volume reconstruction',
+        'python main.py reconstruct-3d [options]')
+    cmd_table.add_row(
         'upload', 'Pick an image file → simulate CT',
         'python main.py upload')
     cmd_table.add_row(
@@ -139,12 +142,18 @@ def _show_help():
 
     console.print(Panel(
         '[bold]Examples[/]\n\n'
-        '[dim]# Reconstruct the default Shepp-Logan phantom[/]\n'
+        '[dim]# Reconstruct the default Shepp-Logan phantom (LSQR)[/]\n'
         'python main.py reconstruct\n\n'
-        '[dim]# Reconstruct from a DICOM scan[/]\n'
-        'python main.py reconstruct --input samples/CT-brain.dcm --compare\n\n'
-        '[dim]# Upload your own image[/]\n'
-        'python main.py upload\n\n'
+        '[dim]# Reconstruct with Filtered Back Projection[/]\n'
+        'python main.py reconstruct --method fbp\n\n'
+        '[dim]# FBP with Shepp-Logan filter + noise[/]\n'
+        'python main.py reconstruct --method fbp --filter shepp-logan --noise 5\n\n'
+        '[dim]# 3D volume reconstruction (16 slices)[/]\n'
+        'python main.py reconstruct-3d --depth 16 --size 32 --method fbp\n\n'
+        '[dim]# 3D with LSQR + regularization[/]\n'
+        'python main.py reconstruct-3d --depth 8 --size 32 --method auto --noise 3 --regularize\n\n'
+        '[dim]# Upload your own image with FBP[/]\n'
+        'python main.py upload --method fbp\n\n'
         '[dim]# Run all validations[/]\n'
         'python main.py validate --all\n\n'
         '[dim]# Noise robustness test with regularization[/]\n'
@@ -167,6 +176,9 @@ def cmd_reconstruct(args):
                 size=args.size, use_refinement=args.refine, method=args.method,
                 input_image=args.input, compare_path=args.compare,
                 save_metrics_path=args.save_metrics,
+                noise_level=args.noise / 100.0,
+                regularization=4.0 if args.regularize else None,
+                filter=args.filter,
             )
         console.print()
         console.print(_metrics_table(results['metrics']))
@@ -176,6 +188,21 @@ def cmd_reconstruct(args):
             fig = plt.gcf()
             fig.savefig(args.output, dpi=150, bbox_inches='tight')
             console.print(f'[green]Plot saved:[/] {args.output}')
+
+        if args.html:
+            from src.exporter import export_reconstruction_html
+            source = args.input or 'Shepp-Logan Phantom'
+            export_reconstruction_html(
+                phantom=results['phantom'],
+                reconstruction=results['reconstruction'],
+                error_map=results['error_map'],
+                metrics=results['metrics'],
+                solver_info=results['solver_info'],
+                b=results.get('b'),
+                source_label=source,
+                path=args.html,
+            )
+            console.print(f'[green]HTML report saved:[/] {args.html}')
 
         if args.input:
             samples = ['samples/CT-brain.dcm', 'samples/CT-chest.dcm', 'samples/CT-ankle.dcm']
@@ -218,6 +245,9 @@ def cmd_upload(args):
                 size=args.size, use_refinement=args.refine, method=args.method,
                 input_image=path, compare_path=args.compare,
                 save_metrics_path=args.save_metrics,
+                noise_level=args.noise / 100.0,
+                regularization=4.0 if args.regularize else None,
+                filter=args.filter,
             )
     except Exception as e:
         _handle_error(e)
@@ -225,6 +255,20 @@ def cmd_upload(args):
     m = results['metrics']
     console.print()
     console.print(_metrics_table(m))
+
+    if args.html:
+        from src.exporter import export_reconstruction_html
+        export_reconstruction_html(
+            phantom=results['phantom'],
+            reconstruction=results['reconstruction'],
+            error_map=results['error_map'],
+            metrics=results['metrics'],
+            solver_info=results['solver_info'],
+            b=results.get('b'),
+            source_label=path,
+            path=args.html,
+        )
+        console.print(f'[green]HTML report saved:[/] {args.html}')
 
     console.print(Panel(
         '[bold]Summary[/]\n\n'
@@ -236,6 +280,48 @@ def cmd_upload(args):
         f'[dim]Tip: Try --size 48 or --refine for different results.[/]',
         border_style='blue',
     ))
+
+
+# ── Subcommand: reconstruct-3d ─────────────────────────────────────────
+
+def cmd_reconstruct_3d(args):
+    from src.reconstructor3d import reconstruct_3d
+    try:
+        _validate_size(args.size)
+        with console.status('[bold green]Reconstructing 3D volume...', spinner='dots'):
+            results = reconstruct_3d(
+                depth=args.depth, size=args.size, method=args.method,
+                noise_level=args.noise / 100.0,
+                regularization=4.0 if args.regularize else None,
+                filter=args.filter, compare_path=args.compare,
+            )
+        m = results['metrics']
+        console.print()
+        t = Table(box=box.SIMPLE_HEAVY, title='[bold]3D Volume Metrics[/]')
+        t.add_column('Metric', style='cyan')
+        t.add_column('Value', justify='right')
+        t.add_row('Depth', f'{m["depth"]} slices')
+        t.add_row('Size', f'{m["size"]}×{m["size"]}')
+        t.add_row('Method', m['method'].upper())
+        t.add_row('Avg RMSE', f'{m["rmse"]:.4f}')
+        t.add_row('Avg PSNR', f'{m["psnr"]:.2f} dB')
+        t.add_row('Avg SSIM', f'{m["ssim"]:.4f}')
+        console.print(t)
+
+        from src.exporter import export_volume_html
+        from datetime import datetime
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        html_path = args.html or f'volume3d_{ts}.html'
+        export_volume_html(
+            volume_true=results['volume_true'],
+            volume_rec=results['volume_rec'],
+            volume_error=results['volume_error'],
+            metrics=results['metrics'],
+            path=html_path,
+        )
+        console.print(f'[green]HTML report saved:[/] {html_path}')
+    except Exception as e:
+        _handle_error(e)
 
 
 # ── Subcommand: validate ────────────────────────────────────────────────
@@ -262,6 +348,11 @@ def cmd_validate(args):
                 total_pass += p
                 total_count += c
             console.print(f'\n[bold]Total:[/] {total_pass}/{total_count} passed')
+
+            if args.html:
+                from src.exporter import export_validation_html
+                export_validation_html(results=all_results, path=args.html)
+                console.print(f'[green]HTML report saved:[/] {args.html}')
             return
 
         for pid, (name, func, kwargs, has_size) in phases.items():
@@ -329,6 +420,16 @@ def cmd_noise(args):
         border_style='yellow',
     ))
 
+    if args.html:
+        from src.exporter import export_noise_html
+        export_noise_html(
+            results=results,
+            noise_levels=noise_levels,
+            path=args.html,
+            regularized=args.regularize,
+        )
+        console.print(f'[green]HTML report saved:[/] {args.html}')
+
     if args.plot:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -369,6 +470,21 @@ def cmd_interactive(args=None):
         border_style='green',
     ))
 
+    def _auto_save_html(kind, **kw):
+        from src.exporter import export_reconstruction_html, export_noise_html, export_validation_html
+        from datetime import datetime
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if kind == 'reconstruction':
+            p = f'reconstruction_{ts}.html'
+            export_reconstruction_html(**kw, path=p)
+        elif kind == 'validation':
+            p = f'validation_{ts}.html'
+            export_validation_html(results=kw['results'], path=p)
+        elif kind == 'noise':
+            p = f'noise_{ts}.html'
+            export_noise_html(**kw, path=p)
+        console.print(f'[green]HTML report saved:[/] {p}')
+
     while True:
         console.print()
         options = [
@@ -381,13 +497,15 @@ def cmd_interactive(args=None):
             ('[7]','Validate — Noise Robustness'),
             ('[8]','Validate — All'),
             ('[9]','Noise sweep'),
-            ('[10]','Project info'),
+            ('[10]','FBP reconstruction (Filtered Back Projection)'),
+            ('[11]','3D reconstruction (stack of slices)'),
+            ('[12]','Project info'),
             ('[0]','Exit'),
         ]
         for num, desc in options:
             console.print(f'  [bold]{num}[/]  {desc}')
 
-        choice = Prompt.ask('[bold yellow]Select[/]', choices=[str(i) for i in range(11)])
+        choice = Prompt.ask('[bold yellow]Select[/]', choices=[str(i) for i in range(13)])
 
         if choice == '0':
             console.print('[green]Goodbye.[/]')
@@ -397,17 +515,31 @@ def cmd_interactive(args=None):
             from src.reconstructor import reconstruct
             size = IntPrompt.ask('Phantom size', default=32)
             _validate_size(size)
+            noise_pct = IntPrompt.ask('Noise level (%)', default=0)
+            reg = Confirm.ask('Use regularization?', default=False)
             with console.status('[bold green]Reconstructing...', spinner='dots'):
-                results = reconstruct(size=size, use_refinement=False)
+                results = reconstruct(size=size, use_refinement=False,
+                    noise_level=noise_pct / 100.0, regularization=4.0 if reg else None)
             console.print(_metrics_table(results['metrics']))
+            _auto_save_html('reconstruction', phantom=results['phantom'],
+                reconstruction=results['reconstruction'], error_map=results['error_map'],
+                metrics=results['metrics'], solver_info=results['solver_info'],
+                b=results.get('b'), source_label='Shepp-Logan Phantom')
 
         elif choice == '2':
             from src.reconstructor import reconstruct
             size = IntPrompt.ask('Phantom size', default=32)
             _validate_size(size)
+            noise_pct = IntPrompt.ask('Noise level (%)', default=0)
+            reg = Confirm.ask('Use regularization?', default=False)
             with console.status('[bold green]Reconstructing with refinement...', spinner='dots'):
-                results = reconstruct(size=size, use_refinement=True)
+                results = reconstruct(size=size, use_refinement=True,
+                    noise_level=noise_pct / 100.0, regularization=4.0 if reg else None)
             console.print(_metrics_table(results['metrics']))
+            _auto_save_html('reconstruction', phantom=results['phantom'],
+                reconstruction=results['reconstruction'], error_map=results['error_map'],
+                metrics=results['metrics'], solver_info=results['solver_info'],
+                b=results.get('b'), source_label='Shepp-Logan Phantom')
 
         elif choice == '3':
             path = _pick_file()
@@ -420,8 +552,11 @@ def cmd_interactive(args=None):
             from src.reconstructor import reconstruct
             size = IntPrompt.ask('Phantom size', default=32)
             _validate_size(size)
+            noise_pct = IntPrompt.ask('Noise level (%)', default=0)
+            reg = Confirm.ask('Use regularization?', default=False)
             with console.status('[bold green]Reconstructing from image...', spinner='dots'):
-                results = reconstruct(size=size, use_refinement=False, input_image=path)
+                results = reconstruct(size=size, use_refinement=False, input_image=path,
+                    noise_level=noise_pct / 100.0, regularization=4.0 if reg else None)
             console.print(_metrics_table(results['metrics']))
             console.print(Panel(
                 '[bold]Summary[/]\n\n'
@@ -430,6 +565,10 @@ def cmd_interactive(args=None):
                 'just like a real CT scanner.',
                 border_style='blue',
             ))
+            _auto_save_html('reconstruction', phantom=results['phantom'],
+                reconstruction=results['reconstruction'], error_map=results['error_map'],
+                metrics=results['metrics'], solver_info=results['solver_info'],
+                b=results.get('b'), source_label=path)
 
         elif choice == '4':
             size = IntPrompt.ask('Phantom size', default=32)
@@ -437,12 +576,14 @@ def cmd_interactive(args=None):
                 pairs, _ = validate_forward_model(_validate_size(size))
             t, p, c = _result_table('[bold]Forward Model[/]', pairs)
             console.print(t)
+            _auto_save_html('validation', results={'Forward Model': pairs})
 
         elif choice == '5':
             with console.status('[bold green]Validating LU solver...', spinner='dots'):
                 pairs = validate_lu_solver()
             t, p, c = _result_table('[bold]LU Solver[/]', pairs)
             console.print(t)
+            _auto_save_html('validation', results={'LU Solver': pairs})
 
         elif choice == '6':
             size = IntPrompt.ask('Phantom size', default=32)
@@ -450,6 +591,7 @@ def cmd_interactive(args=None):
                 pairs = validate_reconstruction(_validate_size(size))
             t, p, c = _result_table('[bold]Reconstruction[/]', pairs)
             console.print(t)
+            _auto_save_html('validation', results={'Reconstruction': pairs})
 
         elif choice == '7':
             size = IntPrompt.ask('Phantom size', default=32)
@@ -457,6 +599,7 @@ def cmd_interactive(args=None):
                 pairs = validate_noise_robustness(_validate_size(size))
             t, p, c = _result_table('[bold]Noise Robustness[/]', pairs)
             console.print(t)
+            _auto_save_html('validation', results={'Noise Robustness': pairs})
 
         elif choice == '8':
             with console.status('[bold green]Running all validations...', spinner='dots'):
@@ -467,6 +610,7 @@ def cmd_interactive(args=None):
                 console.print(t)
                 total_pass += p; total_count += c
             console.print(f'\n[bold]Total:[/] {total_pass}/{total_count} passed')
+            _auto_save_html('validation', results=all_results)
 
         elif choice == '9':
             from src.noise import noise_robustness_test
@@ -484,8 +628,41 @@ def cmd_interactive(args=None):
                 t.add_row(f'{nl*100:.0f}%', f'{m["rmse"]:.4f}',
                           f'{m["psnr"]:.2f} dB', f'{m["ssim"]:.4f}')
             console.print(t)
+            _auto_save_html('noise', results=results, noise_levels=noise_levels, regularized=reg)
 
         elif choice == '10':
+            from src.reconstructor import reconstruct
+            size = IntPrompt.ask('Phantom size', default=32)
+            _validate_size(size)
+            noise_pct = IntPrompt.ask('Noise level (%)', default=0)
+            filter_opt = Prompt.ask('Filter', default='ramp',
+                choices=['ramp', 'shepp-logan', 'cosine', 'hamming', 'hann'])
+            with console.status('[bold green]FBP reconstructing...', spinner='dots'):
+                results = reconstruct(size=size, method='fbp',
+                    noise_level=noise_pct / 100.0, filter=filter_opt)
+            console.print(_metrics_table(results['metrics']))
+            _auto_save_html('reconstruction', phantom=results['phantom'],
+                reconstruction=results['reconstruction'], error_map=results['error_map'],
+                metrics=results['metrics'], solver_info=results['solver_info'],
+                b=results.get('b'), source_label='Shepp-Logan Phantom')
+
+        elif choice == '11':
+            from src.reconstructor3d import reconstruct_3d
+            depth = IntPrompt.ask('Number of slices', default=16)
+            size = IntPrompt.ask('Slice size', default=32)
+            _validate_size(size)
+            method = Prompt.ask('Method', default='auto',
+                choices=['auto', 'sparse', 'dense', 'fbp'])
+            noise_pct = IntPrompt.ask('Noise level (%)', default=0)
+            reg = Confirm.ask('Use regularization?', default=False)
+            with console.status('[bold green]Reconstructing 3D volume...', spinner='dots'):
+                results = reconstruct_3d(depth=depth, size=size, method=method,
+                    noise_level=noise_pct / 100.0,
+                    regularization=4.0 if reg else None)
+            m = results['metrics']
+            console.print(f'\nAvg RMSE={m["rmse"]:.4f}  PSNR={m["psnr"]:.1f}dB  SSIM={m["ssim"]:.4f}')
+
+        elif choice == '12':
             cmd_info()
 
 
@@ -507,12 +684,14 @@ def cmd_info(args=None):
     t.add_row('Matrix sparsity', f'{get_sparsity(A):.2%}')
     t.add_row('Non-zeros', f'{A.nnz:,}')
     t.add_row('Memory (A)', f'{A.data.nbytes / 1024**2:.2f} MB')
-    t.add_row('Solver', 'LSQR (iterative least squares)')
+    t.add_row('Solver (LSQR)', 'iterative least squares with A-matrix')
+    t.add_row('Solver (FBP)', 'filtered back projection (radon/iradon)')
     t.add_row('Regularization', 'Tikhonov (damp parameter)')
+    t.add_row('3D mode', 'slice-by-stack reconstruction')
     t.add_row('CLI', 'python main.py reconstruct --help')
 
     console.print(Panel(t, title='[bold]CT Reconstruction Project[/]', border_style='blue'))
-    console.print('\n[yellow]4 phases[/] · [cyan]22 source files[/] · [green]31 tests[/]')
+    console.print('\n[yellow]5 modules[/] · [cyan]25+ source files[/] · [green]31 tests[/]')
 
 
 # ── Main ────────────────────────────────────────────────────────────────
@@ -532,15 +711,22 @@ def main():
     r = sub.add_parser('reconstruct', help='Reconstruct image from CT projections')
     r.add_argument('--size', type=int, default=32, help='Phantom size in pixels (8-256, default: 32)')
     r.add_argument('--refine', action='store_true', help='Apply iterative refinement')
-    r.add_argument('--method', choices=['auto', 'sparse', 'dense'], default='auto',
-                   help='Solver method (default: auto)')
+    r.add_argument('--method', choices=['auto', 'sparse', 'dense', 'fbp'], default='auto',
+                   help='Solver method: auto/sparse/dense (LSQR) or fbp (Filtered Back Projection)')
+    r.add_argument('--filter', choices=['ramp', 'shepp-logan', 'cosine', 'hamming', 'hann'],
+                   default='ramp', help='FBP filter (default: ramp, used with --method fbp)')
     r.add_argument('--input', '-i', default=None,
                    help='Path to DICOM or image (default: Shepp-Logan phantom)')
     r.add_argument('--compare', '-c', default=None,
                    help='Save 4-panel comparison plot (truth, recon, error, sinogram)')
     r.add_argument('--save-metrics', '-m', default=None,
                    help='Export metrics to JSON file')
+    r.add_argument('--noise', type=float, default=0,
+                   help='Add Gaussian noise to sinogram (percent, e.g. 5 for 5%%)')
+    r.add_argument('--regularize', action='store_true',
+                   help='Enable Tikhonov regularization')
     r.add_argument('--output', '-o', help='Save final plot to file')
+    r.add_argument('--html', help='Export results to standalone HTML report')
 
     # validate
     v = sub.add_parser('validate', help='Run system validation checks')
@@ -549,6 +735,7 @@ def main():
     v.add_argument('--all', action='store_true', help='Run all validations')
     v.add_argument('--size', type=int, default=32,
                    help='Phantom size in pixels (8-256, default: 32)')
+    v.add_argument('--html', help='Export results to standalone HTML report (requires --all)')
 
     # noise
     n = sub.add_parser('noise', help='Test reconstruction robustness under noise')
@@ -559,6 +746,7 @@ def main():
     n.add_argument('--size', type=int, default=32,
                    help='Phantom size in pixels (8-256, default: 32)')
     n.add_argument('--plot', '-p', help='Save visual comparison plot to file')
+    n.add_argument('--html', help='Export results to standalone HTML report')
 
     # upload
     u = sub.add_parser('upload', help='Pick an image and simulate CT reconstruction')
@@ -566,13 +754,36 @@ def main():
                    help='Path to image (opens dialog if omitted)')
     u.add_argument('--size', type=int, default=32,
                    help='Phantom size in pixels (8-256, default: 32)')
+    u.add_argument('--noise', type=float, default=0,
+                   help='Add Gaussian noise to sinogram (percent, e.g. 5 for 5%%)')
+    u.add_argument('--regularize', action='store_true',
+                   help='Enable Tikhonov regularization')
     u.add_argument('--refine', action='store_true', help='Apply iterative refinement')
-    u.add_argument('--method', choices=['auto', 'sparse', 'dense'], default='auto',
-                   help='Solver method (default: auto)')
+    u.add_argument('--method', choices=['auto', 'sparse', 'dense', 'fbp'], default='auto',
+                   help='Solver method: auto/sparse/dense (LSQR) or fbp (Filtered Back Projection)')
+    u.add_argument('--filter', choices=['ramp', 'shepp-logan', 'cosine', 'hamming', 'hann'],
+                   default='ramp', help='FBP filter (default: ramp, used with --method fbp)')
     u.add_argument('--compare', '-c', default=None,
                    help='Save 4-panel comparison plot')
     u.add_argument('--save-metrics', '-m', default=None,
                    help='Export metrics to JSON file')
+    u.add_argument('--html', help='Export results to standalone HTML report')
+
+    # reconstruct-3d
+    r3 = sub.add_parser('reconstruct-3d', help='3D volume reconstruction slice-by-slice')
+    r3.add_argument('--depth', type=int, default=16, help='Number of slices (default: 16)')
+    r3.add_argument('--size', type=int, default=32, help='Slice dimension (8-256, default: 32)')
+    r3.add_argument('--method', choices=['auto', 'sparse', 'dense', 'fbp'], default='auto',
+                    help='Per-slice solver method (default: auto)')
+    r3.add_argument('--noise', type=float, default=0,
+                    help='Gaussian noise percent per slice (e.g. 5 for 5%%)')
+    r3.add_argument('--regularize', action='store_true',
+                    help='Enable Tikhonov regularization (LSQR methods only)')
+    r3.add_argument('--filter', choices=['ramp', 'shepp-logan', 'cosine', 'hamming', 'hann'],
+                    default='ramp', help='FBP filter (default: ramp, --method fbp only)')
+    r3.add_argument('--compare', '-c', default=None,
+                    help='Save multi-slice comparison plot to file')
+    r3.add_argument('--html', help='Export results to standalone HTML report')
 
     # interactive
     sub.add_parser('interactive', help='Launch interactive menu-driven mode')
@@ -593,6 +804,7 @@ def main():
 
     dispatch = {
         'reconstruct': cmd_reconstruct,
+        'reconstruct-3d': cmd_reconstruct_3d,
         'validate': cmd_validate,
         'noise': cmd_noise,
         'upload': cmd_upload,

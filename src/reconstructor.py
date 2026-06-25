@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from src.projector import build_system, get_sparsity
 from src.lud_solver import solve_lu, iterative_refinement
 from src.metrics import compute_metrics, ssim
+from src.noise import add_gaussian_noise
+from src.fbp_solver import fbp_reconstruct
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -14,7 +16,9 @@ if sys.platform == 'win32':
 
 def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'auto',
                 input_image: str = None, compare_path: str = None,
-                save_metrics_path: str = None):
+                save_metrics_path: str = None,
+                noise_level: float = 0.0, regularization: float = None,
+                filter: str = 'ramp'):
     """
     Full CT reconstruction pipeline.
 
@@ -25,10 +29,15 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
         input_image: Path to DICOM or raster image to use as ground truth
         compare_path: Save side-by-side comparison plot to this path
         save_metrics_path: Save metrics JSON to this path
+        noise_level: Relative Gaussian noise added to sinogram (0 = no noise)
+        regularization: Tikhonov regularization strength (None = no regularization)
 
     Returns:
         Dictionary with reconstruction results
     """
+    if method == 'fbp':
+        return _reconstruct_fbp(size, input_image, noise_level, filter)
+
     source_label = 'Shepp-Logan Phantom'
     if input_image:
         from src.loader import load_image
@@ -37,6 +46,9 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
     else:
         from src.phantom import shepp_logan
         A, b, x_true = build_system(size)
+        if noise_level > 0:
+            b = add_gaussian_noise(b, noise_level)
+            print(f"   Noise added: {noise_level*100:.1f}% Gaussian")
 
     phantom = x_true.reshape(size, size)
 
@@ -59,12 +71,16 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
         print(f"\n1. Building forward model from input image...")
         A, b, _ = build_system(size)
         b = A @ x_true
+        if noise_level > 0:
+            b = add_gaussian_noise(b, noise_level)
+            print(f"   Noise added: {noise_level*100:.1f}% Gaussian")
         print(f"   A: {A.shape}, sparsity: {get_sparsity(A):.2%}")
         print(f"   b: {b.shape}")
 
     print(f"\n2. Solving Ax = b...")
-    x_rec, info = solve_lu(A, b, method=method)
-    print(f"   Method: {info['method']} -> {info['factorization']}")
+    reg_label = f", regularization={regularization}" if regularization else ""
+    x_rec, info = solve_lu(A, b, method=method, regularization=regularization)
+    print(f"   Method: {info['method']} -> {info['factorization']}{reg_label}")
     print(f"   Initial residual: {info['residual']:.2e}")
 
     if use_refinement:
@@ -80,6 +96,10 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
     ssim_val = ssim(x_true, x_rec, size)
     metrics['ssim'] = ssim_val
     metrics['source'] = source_label
+    if noise_level > 0:
+        metrics['noise_level'] = noise_level
+    if regularization:
+        metrics['regularization'] = regularization
     if use_refinement:
         metrics['refinement_iterations'] = ref_info['iterations']
         metrics['refinement_final_residual'] = ref_info['final_residual']
@@ -115,7 +135,8 @@ def reconstruct(size: int = 32, use_refinement: bool = False, method: str = 'aut
         'reconstruction': reconstruction,
         'error_map': error_map,
         'metrics': metrics,
-        'solver_info': info
+        'solver_info': info,
+        'b': b,
     }
 
 
@@ -147,6 +168,43 @@ def _save_comparison(phantom, reconstruction, error_map, b, metrics, size, path)
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"   Comparison saved: {path}")
+
+
+def _reconstruct_fbp(size, input_image, noise_level, filter='ramp'):
+    """FBP reconstruction path: radon forward + iradon inverse."""
+    from src.phantom import shepp_logan
+    from src.loader import load_image
+    from src.metrics import compute_metrics, ssim
+
+    if input_image:
+        x_true = load_image(input_image, size)
+        source_label = input_image
+    else:
+        x_true = shepp_logan(size)
+        source_label = 'Shepp-Logan Phantom'
+
+    print(f"=== FBP RECONSTRUCTION (size={size}) ===\n")
+    print(f"Phantom: {source_label}")
+    print(f"\n1. Forward Radon transform + inverse FBP (filter={filter})...")
+
+    result = fbp_reconstruct(x_true, n_angles=size, filter=filter, noise_level=noise_level)
+
+    metrics = result['metrics']
+    print(f"   Method: FBP -> iradon ({result['solver_info']['filter']})")
+    if noise_level > 0:
+        print(f"   Noise added: {noise_level*100:.1f}% Gaussian")
+    print(f"\n2. Computing quality metrics...")
+    print(f"   RMSE: {metrics['rmse']:.4f}")
+    print(f"   PSNR: {metrics['psnr']:.2f} dB")
+    print(f"   SSIM: {metrics['ssim']:.4f}")
+
+    result['metrics']['source'] = source_label
+    result['metrics']['filter'] = filter
+    if noise_level > 0:
+        result['metrics']['noise_level'] = noise_level
+
+    print("\n=== FBP RECONSTRUCTION COMPLETE ===")
+    return result
 
 
 if __name__ == "__main__":
