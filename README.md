@@ -1,47 +1,109 @@
-# CT Reconstruction using LU Decomposition
+<div align="center">
 
-Educational prototype demonstrating medical image reconstruction from CT projection data using LU factorization and least-squares solvers.
+# 🧠 CT Reconstruction using LU Decomposition
 
-## Quick Start
+<p align="center">
+  <strong>From X-ray projections to image reconstruction —<br>a first-principles implementation in Python</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/NumPy-1.24+-013243?style=flat&logo=numpy&logoColor=white" alt="NumPy">
+  <img src="https://img.shields.io/badge/SciPy-1.10+-8CAAE6?style=flat&logo=scipy&logoColor=white" alt="SciPy">
+  <img src="https://img.shields.io/badge/pytest-7.x-0A9EDC?style=flat&logo=pytest&logoColor=white" alt="pytest">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License">
+  <img src="https://img.shields.io/badge/status-college%20project-FF6F00?style=flat" alt="Status">
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-cli-reference">CLI Reference</a> •
+  <a href="#-results">Results</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#%EF%B8%8F-presentation">Presentation</a>
+</p>
+
+---
+
+[![View Presentation](https://img.shields.io/badge/▶-View%20Presentation%20(HTML)-FF6F00?style=for-the-badge)](https://kushalchalla981-tech.github.io/ctscan/presentation.html)
+[![Download PPTX](https://img.shields.io/badge/⬇-Download%20PPTX-2E77BC?style=for-the-badge)](presentation.pptx)
+[![Open in Colab](https://img.shields.io/badge/▶-Open%20in%20Colab-F9AB00?style=for-the-badge&logo=googlecolab&logoColor=white)](https://colab.research.google.com/github/kushalchalla981-tech/ctscan/blob/main/demo.ipynb)
+
+</div>
+
+## 📌 Overview
+
+This project implements a **complete CT (Computed Tomography) reconstruction pipeline from first principles**. It demonstrates how a system of linear equations derived from X-ray projections can be solved using **LU decomposition** and **iterative LSQR** methods to recover cross-sectional images — the mathematical foundation behind every medical CT scanner.
+
+> 🎓 **College project** · Linear Algebra · Medical Imaging · Inverse Problems
+
+## ✨ Features
+
+| Area | What it does |
+|------|-------------|
+| **🧪 Phantom Generation** | Shepp-Logan phantom (32×32, configurable size) with 10 anatomical ellipses |
+| **📐 Ray Tracing** | Parallel-beam geometry — 44 angles × 32 detectors = 1,408 projection rays |
+| **🧮 LU Decomposition** | Dense PA=LU with partial pivoting + forward/backward substitution |
+| **⚡ Sparse LSQR** | Iterative solver via Golub-Kahan bidiagonalization for large sparse systems |
+| **🔄 Iterative Refinement** | Correction loop `xₖ₊₁ = xₖ + A†·(b − Axₖ)` until residual < 10⁻¹⁰ |
+| **🔧 Tikhonov Regularization** | Damped least-squares `min ‖Ax−b‖² + λ²‖x‖²` for noise robustness |
+| **📊 Quality Metrics** | RMSE, PSNR, SSIM, relative error, forward residual |
+| **📂 DICOM Support** | Load real CT scans (.dcm) via pydicom + pylibjpeg |
+| **📝 HTML Reports** | All commands support `--html` for standalone self-contained reports |
+| **📓 Jupyter Notebook** | Interactive walkthrough in `demo.ipynb` |
+| **✅ 31 Unit Tests** | pytest suite across all 4 project phases |
+
+## 🚀 Quick Start
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
-python main.py reconstruct                       # Shepp-Logan phantom
-python main.py reconstruct --refine              # with iterative refinement
-python main.py upload                            # file dialog → your image
-python main.py interactive                       # menu-driven mode
-python main.py info
+
+# Reconstruct the Shepp-Logan phantom
+python main.py reconstruct
+
+# With iterative refinement (near-perfect results)
+python main.py reconstruct --refine
+
+# Upload your own image (opens file dialog)
+python main.py upload
+
+# Menu-driven mode — no flags needed
+python main.py interactive
 ```
 
-## CLI Reference
+## 📖 CLI Reference
 
 | Command | Description |
-|---|---|
-| `python main.py reconstruct [options]` | Run full reconstruction pipeline |
+|---------|-------------|
+| `python main.py reconstruct [options]` | Full reconstruction pipeline (phantom or DICOM) |
 | `python main.py upload [options]` | Pick an image → simulate CT reconstruction |
 | `python main.py validate [--phase N] [--all]` | Run validation checks |
 | `python main.py noise [options]` | Noise robustness sweep |
 | `python main.py interactive` | Menu-driven interactive mode |
 | `python main.py info` | Project information |
 
+<details>
+<summary><strong>🔍 Detailed CLI Flags</strong></summary>
+
 ### `reconstruct`
 
 ```bash
-# Synthetic phantom
 python main.py reconstruct --size 32 --refine --output result.png
-# Real DICOM scan
 python main.py reconstruct --input samples/CT-brain.dcm --compare --save-metrics results.json
 ```
 
 | Flag | Default | Description |
-|---|---|---|
+|------|---------|-------------|
 | `--size` | 32 | Phantom dimension (pixels) |
 | `--refine` | off | Apply iterative refinement |
-| `--method` | auto | Solver: auto, sparse, or dense |
+| `--method` | auto | Solver: `auto`, `sparse`, or `dense` |
 | `--input` / `-i` | none | Path to DICOM or image file |
 | `--compare` / `-c` | none | Save 4-panel comparison plot |
 | `--save-metrics` / `-m` | none | Export metrics to JSON |
 | `--output` / `-o` | none | Save final plot to file |
+| `--html` | off | Export standalone HTML report |
 
 ### `validate`
 
@@ -51,10 +113,11 @@ python main.py validate --phase 2
 ```
 
 | Flag | Description |
-|---|---|
-| `--phase` 1–4 | Run a specific validation |
+|------|-------------|
+| `--phase` 1–4 | Run a specific validation phase |
 | `--all` | Run all validations |
 | `--size` | Phantom size (default: 32) |
+| `--html` | Export standalone HTML report |
 
 ### `noise`
 
@@ -63,134 +126,112 @@ python main.py noise --levels 0 1 5 10 20 --regularize --plot noise.png
 ```
 
 | Flag | Default | Description |
-|---|---|---|
+|------|---------|-------------|
 | `--levels` | 0 1 5 10 20 | Noise levels in percent |
 | `--regularize` | off | Enable Tikhonov regularization |
+| `--damp` | 2.0 | Regularization strength (√λ) |
 | `--size` | 32 | Phantom size |
-| `--plot` / `-p` | none | Save visual comparison |
+| `--html` | off | Export standalone HTML report |
 
-### `upload`
+</details>
 
-Opens a file dialog (or accepts `--file`) to pick any image. The image is
-used as the "ground truth" — we simulate CT X-ray projections through it,
-then reconstruct the original from those projections.
+## 📊 Results
 
-```bash
-python main.py upload                          # file dialog pops up
-python main.py upload --file my_photo.png      # skip dialog, go direct
-python main.py upload -f my_photo.png --compare --size 48
-```
+### Without Noise (32×32)
 
-| Flag | Default | Description |
-|---|---|---|
-| `--file` / `-f` | none | Direct path to image (no dialog) |
-| `--size` | 32 | Phantom dimension (pixels) |
-| `--refine` | off | Apply iterative refinement |
-| `--method` | auto | Solver: auto, sparse, or dense |
-| `--compare` / `-c` | none | Save 4-panel comparison plot |
-| `--save-metrics` / `-m` | none | Export metrics to JSON |
+| Metric | Basic | With Refinement |
+|--------|:-----:|:---------------:|
+| **RMSE** ↓ | 0.0223 | **0.0012** |
+| **PSNR** ↑ | 33.38 dB | **58.35 dB** |
+| **SSIM** ↑ | 0.995 | **1.000** |
+| **Residual** ↓ | 2.6×10⁻⁵ | **2.3×10⁻⁷** |
 
-### `interactive`
+> ✨ **SSIM = 1.000** with iterative refinement: the reconstruction is structurally indistinguishable from the original phantom.
 
-Launches a numbered menu with options for phantom reconstruction, image upload, validations, noise sweep, and project info — no flags needed.
+### Noise Robustness (Tikhonov Regularization, damp=2.0)
 
-## Samples
-
-`python main.py upload` or `python main.py reconstruct --input samples/any-file.dcm`
-
-### Generator script
-
-```bash
-python samples/generate.py --list                         # list all available
-python samples/generate.py brain chest knee               # specific parts
-python samples/generate.py --all                          # generate every body part
-```
-
-### Real CT scans
-
-| File | Anatomy | Source |
-|---|---|---|
-| `CT-brain.dcm` | Head | Barre's Collection |
-| `CT-chest.dcm` | Chest | Barre's Collection |
-| `CT-ankle.dcm` | Ankle | Barre's Collection |
-| `CT-small.dcm` | 128×128 CT | pydicom test fixture |
-
-### Synthetic test patterns
-
-| File | Description |
-|---|---|
-| `phantom-shepp-logan.dcm` | Classic Shepp-Logan phantom |
-| `phantom-rings.dcm` | Concentric rings |
-| `phantom-resolution.dcm` | Resolution bars |
-| `phantom-gradient.dcm` | Intensity gradient |
-
-### Anatomical DICOM library (59 body parts)
-
-Generated by `samples/generate.py` — each is a synthetic CT cross-section
-with a unique geometric pattern approximating that anatomy.
-
-```
-abdomen    arm       bladder   brain     calf      chest     clavicle
-ankle      artery    bone      breast    cartilage diaphragm ear
-aorta      elbow     esophagus eye       fat       femur     finger
-foot       forearm   hand      head      heart     hip       intestine
-jaw        kidney    knee      liver     lung      lymph     muscle
-neck       nerve     ovary     pancreas  pelvis    prostate  rib
-scapula    shoulder  sinus     skin      spine     spleen    stomach
-tendon     testicle  thigh     thyroid   toe       tooth     trachea
-uterus     vein      wrist
-```
-
-> PNG test patterns (`checkerboard.png`, `rings.png`, `gradient.png`, `shapes.png`)
-> work with `--input` without any DICOM library.
-
-## Architecture
-
-```
-main.py                  ← Single entry point (argparse + rich)
-src/
-├── loader.py            DICOM/raster image loader
-├── phantom.py           Shepp-Logan phantom generator
-├── projector.py         Parallel-beam ray tracer → sparse A + sinogram b
-├── lud_solver.py        LU decomposition with pivoting + LSQR
-├── metrics.py           RMSE, PSNR, SSIM
-├── reconstructor.py     Full reconstruction pipeline
-├── noise.py             Gaussian/Poisson noise + robustness testing
-└── validate.py          Consolidated validation suite
-samples/                 12 example files (real DICOM + synthetic + PNG)
-tests/                   31 unit tests
-demo.ipynb               Jupyter notebook walkthrough
-COLLEGE_REPORT.md        Full project report
-```
-
-## Results (32×32, clean)
-
-| Metric | Basic | With refinement |
-|---|---|---|
-| RMSE | 0.0223 | 0.0012 |
-| PSNR | 33.38 dB | 58.35 dB |
-| SSIM | 0.995 | 1.000 |
-| Residual | 2.6e-05 | 2.3e-07 |
-
-## Noise Robustness (regularized, damp=2.0)
-
-| Noise | RMSE | PSNR | SSIM |
-|---|---|---|---|
+| Noise | RMSE ↓ | PSNR ↑ | SSIM ↑ |
+|:-----:|:------:|:------:|:------:|
 | 0% | 0.083 | 21.6 dB | 0.913 |
+| 1% | **0.095** | **20.4 dB** | **0.897** |
 | 5% | 0.245 | 14.7 dB | 0.551 |
 | 10% | 0.467 | 12.1 dB | 0.252 |
 | 20% | 0.922 | 10.6 dB | 0.080 |
 
-> Regularization adds slight bias at 0% noise (RMSE 0.083 vs 0.022) but is essential for robustness. Unregularized LSQR catastrophically fails at even 1% noise.
+> ⚠️ Without regularization, RMSE jumps from 0.022 → **2.56** at just 1% noise. Regularization keeps it at **0.095** — **27× better**.
 
-## Testing
+## 🏗 Architecture
 
-```bash
-pytest tests/ -v
+```
+main.py                    ← Single entry point (argparse + rich CLI)
+│
+└── src/
+    ├── phantom.py         Shepp-Logan phantom generator (10 ellipses)
+    ├── projector.py       Parallel-beam ray tracer → sparse A + sinogram b
+    ├── lud_solver.py      LU decomposition with partial pivoting + LSQR
+    ├── reconstructor.py   Full reconstruction pipeline orchestrator
+    ├── fbp_solver.py      Filtered Back Projection (Radon/iradon)
+    ├── metrics.py         RMSE, PSNR, SSIM, relative error, residual
+    ├── noise.py           Gaussian/Poisson noise + robustness testing
+    ├── exporter.py        Standalone HTML report generator
+    ├── loader.py          DICOM/raster image loader (pydicom)
+    ├── validate.py        4-phase consolidated validation suite
+    ├── phantom3d.py       3D Shepp-Logan with evolving anatomy
+    └── reconstructor3d.py 3D volume reconstruction pipeline
+│
+├── tests/                 31 unit tests (pytest)
+├── samples/               73+ test images (DICOM + PNG)
+├── demo.ipynb             Jupyter notebook walkthrough
+└── presentation.html      Interactive HTML slide deck
 ```
 
-## References
+## ▶️ Presentation
 
-- Shepp & Logan (1974). "The Fourier reconstruction of a head section."
-- Paige & Saunders (1982). "LSQR: An algorithm for sparse linear equations."
-- Barre's DICOM Collection: https://barre.dev/medical/samples/
+View the full project presentation:
+
+| Format | Link |
+|--------|------|
+| 🌐 **HTML** (interactive) | [kushalchalla981-tech.github.io/ctscan/presentation.html](https://kushalchalla981-tech.github.io/ctscan/presentation.html) |
+| 📊 **PPTX** (PowerPoint) | [presentation.pptx](presentation.pptx) |
+| 📓 **Notebook** | [demo.ipynb](demo.ipynb) |
+
+## 🧪 Running Tests
+
+```bash
+pytest tests/ -v --tb=short
+```
+
+All 31 tests should pass across the 4 validation phases:
+- **Phase 1**: Forward model (phantom + projector)
+- **Phase 2**: Reconstruction (LU, LSQR, FBP)
+- **Phase 3**: Quality metrics (RMSE, PSNR, SSIM)
+- **Phase 4**: Noise robustness & regularization
+
+## 🛠 Tech Stack
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/NumPy-013243?style=flat&logo=numpy&logoColor=white" alt="NumPy">
+  <img src="https://img.shields.io/badge/SciPy-8CAAE6?style=flat&logo=scipy&logoColor=white" alt="SciPy">
+  <img src="https://img.shields.io/badge/Matplotlib-11557C?style=flat&logo=python&logoColor=white" alt="Matplotlib">
+  <img src="https://img.shields.io/badge/scikit--image-F06030?style=flat&logo=scikit-learn&logoColor=white" alt="scikit-image">
+  <img src="https://img.shields.io/badge/pydicom-0A9EDC?style=flat" alt="pydicom">
+  <img src="https://img.shields.io/badge/pytest-0A9EDC?style=flat&logo=pytest&logoColor=white" alt="pytest">
+  <img src="https://img.shields.io/badge/Rich-FF6F00?style=flat" alt="Rich">
+  <img src="https://img.shields.io/badge/python--pptx-2E77BC?style=flat" alt="python-pptx">
+</p>
+
+## 📚 References
+
+- Shepp & Logan (1974). *The Fourier reconstruction of a head section.* IEEE Trans. Nucl. Sci.
+- Paige & Saunders (1982). *LSQR: An algorithm for sparse linear equations and sparse least squares.* ACM Trans. Math. Softw.
+- Golub & Van Loan (2013). *Matrix Computations* (4th ed.). Johns Hopkins University Press.
+- Barre's DICOM Collection — [barre.dev/medical/samples](https://barre.dev/medical/samples/)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ as a college project — CT Reconstruction using LU Decomposition</sub>
+  <br>
+  <sub>© 2026</sub>
+</div>
