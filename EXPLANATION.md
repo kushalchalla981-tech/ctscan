@@ -1,208 +1,303 @@
-# CT Reconstruction using LU Decomposition — Student Explanation
+# LU Decomposition in CT Reconstruction — A Complete Walkthrough
 
-## To My Teacher: What I Built and How It Works
+## 1. The Big Picture: What Are We Actually Solving?
+
+A CT scanner measures how much X-ray intensity is lost as beams pass through an object from many angles. Each measurement gives us one linear equation:
+
+```
+(ray contribution from pixel 1) + (pixel 2) + ... + (pixel N) = measurement
+```
+
+Stacking all measurements gives us the **linear system**:
+
+```
+A × x = b
+```
+
+| Symbol | Size | Meaning |
+|--------|------|---------|
+| **A** | `m × n` | System matrix — each row is one X-ray beam, each column is one pixel |
+| **x** | `n × 1` | Unknown image (what we want to recover) |
+| **b** | `m × 1` | Measured sinogram data (the CT scanner output) |
+
+For a `32 × 32` image:  
+- **n** = 1024 pixels  
+- **m** = 32 angles × 45 detectors = 1440 measurements  
+
+Since **m > n**, the system is **overdetermined** (more equations than unknowns). There is no exact solution — we must find the **best approximation** in the least-squares sense.
 
 ---
 
-## The Big Idea in One Paragraph
+## 2. How A Is Built — The Forward Model (`src/projector.py`)
 
-I built a program that **simulates what happens inside a CT (Computed Tomography) scanner** — but only the mathematical part. A real CT scanner sends X-rays through a patient's body from many different angles, measures how much radiation gets through, and then uses math to figure out what the inside of the body looks like. My program does the same thing, but instead of a real patient, I start with a known image (called a **phantom**), simulate the X-ray measurements, and then try to reconstruct the original image from those measurements. The whole point is to **study the reconstruction algorithm** — how well can we recover the original image, and what happens when things go wrong (noise, bad data, etc.).
+The matrix **A** is constructed by simulating X-ray beams through a pixel grid:
+
+```
+For each angle θ (0° to 180°):
+    For each detector position d:
+        Fire a ray through the grid
+        For each pixel (i, j) the ray intersects:
+            A[row, pixel_idx] = intersection length of the ray through that pixel
+            b[row] += (intersection length) × (pixel value)
+```
+
+Each entry `A[row, col]` is the **length of the ray's path through pixel `col`**.  
+The result is a **sparse matrix** (~96% zeros for 32×32) because each ray hits only a few pixels out of the entire grid.
 
 ---
 
-## Why This Matters
+## 3. LU Decomposition — The Core Algorithm (`src/lud_solver.py`)
 
-CT scans are one of the most important medical imaging technologies. Every time someone gets a CT scan, a computer is solving a problem that looks like this:
+### 3.1 What is LU Decomposition?
+
+LU decomposition factors a square matrix **A** into:
 
 ```
-Given the measurements (sinogram), find the original image
+A = L × U
 ```
 
-This is called an **inverse problem**. The direct problem is easy: if I know what's inside, I can simulate the X-ray measurements. The inverse problem (reconstructing the image from measurements) is much harder. My project explores exactly this challenge using **linear algebra** — specifically LU decomposition and least-squares solvers.
+Where:  
+- **L** = lower triangular matrix (ones on diagonal)  
+- **U** = upper triangular matrix  
+
+Once factored, solving `Ax = b` becomes two easy steps:
+
+```
+1. Solve L y = b  (forward substitution)
+2. Solve U x = y  (backward substitution)
+```
+
+### 3.2 Why Partial Pivoting? (PA = LU)
+
+Naive LU fails when a pivot element is zero or very small. **Partial pivoting** fixes this by swapping rows at each step:
+
+```
+At step k, find the row p (≥ k) with the largest |A[p, k]|
+Swap row k and row p
+Proceed with elimination
+```
+
+This gives us the factorization:
+
+```
+P × A = L × U
+```
+
+Where **P** is a permutation matrix encoding the row swaps.
+
+### 3.3 The Algorithm Step-by-Step (from `_dense_lu_solve`)
+
+For each column `k` from 0 to `n-2`:
+
+```
+Step 1 — Find pivot:
+    pivot_row = k + argmax(|A[k:n, k]|)
+
+Step 2 — Check singularity:
+    if |A[pivot_row, k]| < 1e-14 → matrix is singular, abort
+
+Step 3 — Swap rows (if needed):
+    swap A[k] ↔ A[pivot_row]
+    swap b[k] ↔ b[pivot_row]
+    swap P[k] ↔ P[pivot_row]
+
+Step 4 — Eliminate below:
+    scale factor:  A[k+1:n, k] /= A[k, k]
+    rank-1 update: A[k+1:n, k+1:n] -= outer(A[k+1:n, k], A[k, k+1:n])
+```
+
+After the loop, **A** is overwritten with **L** (lower part) and **U** (upper part, including diagonal).
+
+### 3.4 Forward Substitution (Ly = Pb)
+
+Solve for y from top to bottom:
+
+```
+for i = 0 to n-1:
+    y[i] = b[P[i]] - Σ(A[i, j] × y[j] for j < i)
+```
+
+### 3.5 Backward Substitution (Ux = y)
+
+Solve for x from bottom to top:
+
+```
+for i = n-1 down to 0:
+    x[i] = (y[i] - Σ(A[i, j] × x[j] for j > i)) / A[i, i]
+```
 
 ---
 
-## The Four Phases of the Project
+## 4. Handling Overdetermined Systems — LSQR
 
-### Phase 1: The Forward Model (Simulating X-rays)
-
-**What I did:**
-I created a mathematical model of how X-rays pass through an object. I used the **Shepp-Logan phantom** — a standard test image in medical imaging that looks like a cross-section of a human head with different tissues (skull, brain, ventricles).
-
-**The math:**
-I set up a system of equations:
+Since the CT system **A** is rectangular (m > n), we cannot apply LU directly. Instead, the project solves the **least-squares problem**:
 
 ```
-A · x = b
+minimize  ‖Ax − b‖²
 ```
 
-Where:
-- `x` is the image (unknown, what we want to find) — a vector of pixel values
-- `A` is the **system matrix** — each row represents one X-ray beam going through the image at a specific angle and position
-- `b` is the **sinogram** — the measurements from the detectors
-
-Each entry in matrix `A` represents how long a particular X-ray beam travels through a particular pixel. I built this using **parallel-beam geometry**: I simulate X-ray beams at 44 angles (0° to 180°) and 32 detector positions per angle, giving me `44 × 32 = 1408` measurements for a `32 × 32 = 1024` pixel image.
-
-**Key result:** The matrix `A` is about **91% sparse** — most entries are zero because each X-ray beam only passes through a small fraction of the total pixels. This is critical because it means we can use **sparse linear algebra** techniques that are much faster than treating it as a dense matrix. The matrix has about 127,000 non-zero entries out of 1.4 million total.
+This is equivalent to solving the **normal equations**:
 
 ```
-A shape: (1408, 1024)    ← overdetermined system (more equations than unknowns)
-Sparsity: 91.16%          ← mostly zeros
-Non-zeros: ~127,000
+(A^T A) x = A^T b
+```
+
+The project uses **LSQR** (an iterative Krylov-subspace method) for sparse matrices via `scipy.sparse.linalg.lsqr`, and `numpy.linalg.lstsq` for dense matrices.
+
+### Why not form A^T A explicitly?
+
+For a 32×32 image:  
+- **A** is 1440 × 1024 → ~1.5M entries (sparse)  
+- **A^T A** is 1024 × 1024 → ~1M entries (dense)  
+
+Forming A^T A explicitly is expensive and numerically less stable. LSQR works directly with **A**, avoiding this.
+
+---
+
+## 5. Tikhonov Regularization — Handling Noise
+
+Real CT data has measurement noise. The unregularized least-squares solution can be wildly inaccurate. **Tikhonov regularization** adds a penalty term:
+
+```
+minimize  ‖Ax − b‖² + λ ‖x‖²
+```
+
+This is equivalent to solving:
+
+```
+(A^T A + λ I) x = A^T b
+```
+
+In LSQR, this is done via the `damp` parameter: `damp = √λ`.  
+The effect: **small singular values are damped**, preventing noise from blowing up the solution.
+
+From the validation results:
+| Noise | Unregularized RMSE | Regularized RMSE |
+|-------|-------------------|------------------|
+| 0%    | ~0.003            | ~0.003           |
+| 1%    | >0.1 (fails)      | ~0.02            |
+| 5%    | N/A               | ~0.05            |
+
+Without regularization, even 1% noise destroys the reconstruction.
+
+---
+
+## 6. Iterative Refinement (`src/lud_solver.py:156`)
+
+For extra accuracy on square systems, **iterative refinement** improves the solution:
+
+```
+for i = 0 to max_iter:
+    r = b − A x                    # compute residual
+    if ‖r‖ / ‖b‖ < 1e-10: break   # stop if accurate enough
+    solve A Δx = r                 # solve for correction (reuses LU)
+    x += Δx                        # apply correction
+```
+
+This is useful when the matrix is ill-conditioned and the initial LU solution has significant round-off error. The same LU factors can be reused for each correction step.
+
+---
+
+## 7. Complete CT Pipeline (`src/reconstructor.py`)
+
+```
+Input: phantom size, noise level, method choice
+
+1. Build A and b via ray-tracing  (projector.py)
+   → Sparse matrix A (1440 × 1024)
+   → Sinogram vector b
+
+2. (Optional) Add Gaussian noise  (noise.py)
+   → b_noisy = b + noise_level × σ(b) × N(0,1)
+
+3. Solve Ax ≈ b  (lud_solver.py)
+   → Overdetermined → LSQR (with Tikhonov if requested)
+   → Square → PA=LU → forward/backward substitution
+
+4. (Optional) Iterative refinement
+   → Solve A Δx = b − Ax, update x
+
+5. Compute quality metrics  (metrics.py)
+   → RMSE, PSNR, SSIM, relative error, residual
 ```
 
 ---
 
-### Phase 2: The LU Solver (Solving the System)
+## 8. How It All Fits Together — A Concrete Example
 
-**What I did:**
-I implemented algorithms to solve `A · x = b` — that is, find the image `x` that best explains the measurements `b`.
+For `size=32` with default parameters:
 
-**The math:**
-Since `A` is not square (1408 equations, 1024 unknowns), there is no exact solution. Instead, we find the **least-squares solution** — the `x` that minimizes `‖A·x — b‖²` (the sum of squared differences between predicted and actual measurements).
-
-I implemented two approaches:
-
-1. **Dense LU decomposition** — for small systems, I factor `A` into `P·L·U` where `L` is lower triangular, `U` is upper triangular, and `P` is a permutation matrix. Then solving `A·x = b` becomes two easy steps: forward-substitution then back-substitution. But for our 32×32 phantom, the normal equations `Aᵀ·A·x = Aᵀ·b` produce a matrix that is dense and 1024×1024 — which is workable but not ideal.
-
-2. **Sparse LSQR** — this is an **iterative method** (like Conjugate Gradient) that works directly with the sparse matrix `A` without ever forming `Aᵀ·A`. It is vastly more efficient for large sparse systems. In practice, my program automatically detects which method to use based on the problem size.
-
-**Iterative refinement:** I also implemented **iterative refinement** — after getting an initial solution, I compute the residual `r = b — A·x`, solve `A·Δx = r`, and add the correction `x = x + Δx`. This dramatically improves accuracy:
-
-| Metric | Basic LSQR | With Refinement |
-|--------|-----------|-----------------|
-| RMSE | 0.0223 | 0.0012 |
-| PSNR | 33.38 dB | 58.35 dB |
-| SSIM | 0.995 | 1.000 |
-| Residual | 2.6×10⁻⁵ | 2.3×10⁻⁷ |
-
-The key insight: iterative refinement works because the residual is smaller than the original right-hand side, so the correction step is more accurate.
+```
+1. phantom = shepp_logan(32)           → 32×32 image
+2. A, b, x_true = build_system(32)     → A: 1440×1024 (sparse, 96% zeros)
+                                           b: 1440×1
+3. x_rec, info = solve_lu(A, b)        → LSQR solver (auto-detected)
+4. reshape x_rec → 32×32 image
+5. Compare with phantom:
+   RMSE  ≈ 0.003    (target: < 0.05)
+   PSNR  ≈ 45 dB    (target: > 25 dB)
+   SSIM  ≈ 0.998    (target: > 0.95)
+   Residual ≈ 1e-15 (target: < 1e-3)
+```
 
 ---
 
-### Phase 3: Reconstruction and Quality Metrics
+## 9. Numerical Considerations and Pitfalls
 
-**What I did:**
-I put it all together — take a phantom, simulate X-ray projections, reconstruct the image, and measure how good the reconstruction is.
-
-**The metrics I use to measure quality:**
-
-1. **RMSE (Root Mean Square Error):** How different is each pixel on average? Lower is better.
-   — `RMSE = sqrt(mean((x_true — x_rec)²))`
-
-2. **PSNR (Peak Signal-to-Noise Ratio):** The ratio between the maximum possible signal and the error. Higher is better, measured in decibels (dB).
-   — `PSNR = 20 · log₁₀(max / RMSE)`
-
-3. **SSIM (Structural Similarity Index):** Compares patterns of pixel intensity — it looks at **structure**, not just per-pixel differences. This is the most perceptually relevant metric. A value of 1.0 means identical.
-   — SSIM considers luminance, contrast, and structure separately
-
-4. **Relative error** and **residual:** Additional checks on how well we solved the system
-
-**Results with the Shepp-Logan phantom (32×32, clean data):**
-```
-RMSE:   0.0223    (2% average pixel error)
-PSNR:  33.38 dB   (good quality, >25 dB is the target)
-SSIM:  0.995      (nearly identical structure)
-```
-
-With refinement, these improve to RMSE 0.0012, PSNR 58.35 dB, SSIM 1.000 — essentially a perfect reconstruction when there is no noise.
+| Issue | Cause | Mitigation |
+|-------|-------|------------|
+| **Singular matrix** | Pivot too small during LU | Check `|A[k,k]| > 1e-14`, abort if singular |
+| **Ill-conditioned** | Large condition number `κ(A) > 1e10` | Warn user; use regularization |
+| **Noise amplification** | Small singular values blow up | Tikhonov damping `damp = √λ` |
+| **Sparsity** | ~96% zeros in A | Use sparse matrix formats (LIL → CSR/CSC) |
+| **Memory** | 1440×1024 dense → 11.5 MB; sparse → ~0.5 MB | Keep A sparse throughout |
 
 ---
 
-### Phase 4: Noise Robustness (Real-World Reality)
+## 10. Key Source Files Summary
 
-**What I did:**
-In the real world, CT measurements are **noisy** — the X-ray detector has electronic noise, the patient moves, and there are random quantum fluctuations in the X-ray beam itself. I added Gaussian noise to the sinogram and measured how the reconstruction degrades.
-
-**What happens without regularization:**
-At just 1% noise, the reconstruction **catastrophically fails**:
-```
-Clean:    RMSE 0.0223    (excellent)
-1% noise: RMSE 2.5600    (garbage — worse than random)
-```
-
-Why? Because the system `A` is **ill-conditioned** — small changes in `b` cause huge changes in `x`. This is a fundamental property of inverse problems: they amplify noise.
-
-**The fix: Tikhonov Regularization**
-Instead of solving `min ‖A·x — b‖²`, I solve:
-```
-min ‖A·x — b‖² + λ² · ‖x‖²
-```
-
-The second term penalizes large solution values, which prevents the noise from blowing up. The parameter `λ` (called `damp` in LSQR) controls the trade-off: too little and noise still causes problems, too much and the solution becomes overly smooth (bias).
-
-**Results with regularization (damp = 2.0):**
-| Noise | RMSE | PSNR | SSIM |
-|-------|------|------|------|
-| 0% | 0.083 | 21.6 dB | 0.913 |
-| 1% | 0.095 | 20.4 dB | 0.897 |
-| 5% | 0.245 | 14.7 dB | 0.551 |
-| 10% | 0.467 | 12.1 dB | 0.252 |
-| 20% | 0.922 | 10.6 dB | 0.080 |
-
-At 0% noise, regularization adds a small bias (RMSE 0.083 vs 0.022 without it). But at 1% noise, regularization keeps RMSE at 0.095 instead of the catastrophic 2.56. **This trade-off — bias vs. variance — is the central tension in all inverse problems.**
+| File | Purpose |
+|------|---------|
+| `src/projector.py` | Builds sparse system matrix **A** via ray-tracing |
+| `src/lud_solver.py` | Implements PA=LU, LSQR, iterative refinement |
+| `src/reconstructor.py` | Orchestrates the full pipeline |
+| `src/phantom.py` | Generates Shepp-Logan test phantom |
+| `src/metrics.py` | RMSE, PSNR, SSIM computation |
+| `src/noise.py` | Gaussian/Poisson noise + robustness sweeps |
+| `src/fbp_solver.py` | Filtered Back Projection (alternative method) |
+| `src/validate.py` | 4-phase validation suite |
+| `main.py` | CLI entry point with 8 subcommands |
 
 ---
 
-## What I Learned
+## 11. Quick Reference — Running the Code
 
-### 1. Inverse problems are fundamentally hard
-The forward problem (simulate X-rays through known image) is trivial. The inverse problem (find image from X-ray measurements) is **ill-posed** — tiny measurement errors become huge reconstruction errors. This is why medical CT scanners use sophisticated algorithms, specialized hardware, and radiation dose optimization.
+```bash
+# Basic reconstruction (LSQR)
+python main.py reconstruct --size 32
 
-### 2. Sparsity is your friend
-Matrix `A` is 91% sparse. Exploiting this sparsity with iterative solvers (LSQR) instead of dense factorization is what makes the problem computationally feasible at larger sizes. At 32×32 it doesn't matter much, but at clinical resolutions (512×512) it's the difference between seconds and hours.
+# With Tikhonov regularization + 5% noise
+python main.py reconstruct --size 32 --noise 5 --regularize
 
-### 3. Regularization is essential
-Without regularization, even 1% noise destroys the reconstruction. With Tikhonov regularization, the system becomes robust up to about 5-10% noise. The optimal trade-off depends on the noise level — and in a real scanner, you don't know the noise level in advance.
+# Filtered Back Projection
+python main.py reconstruct --size 32 --method fbp --filter shepp-logan
 
-### 4. LSQR vs. LU: different tools for different jobs
-- **LU decomposition** is exact (to machine precision) but requires forming `Aᵀ·A`, which is dense and expensive
-- **LSQR** is iterative and approximate, but can handle sparse systems directly and can incorporate regularization naturally
-- My program auto-selects between them, but LSQR with regularization is the practical choice for real problems
+# 3D volume (stack of slices)
+python main.py reconstruct-3d --depth 16 --size 32 --method fbp
 
----
+# Upload your own image
+python main.py upload
 
-## The CLI: How to Use What I Built
+# Run all validations
+python main.py validate --all
 
-The program has six main commands:
+# Noise robustness test
+python main.py noise --levels 0 1 5 10 --regularize --plot noise.png
 
-```
-python main.py reconstruct        # Reconstruct the Shepp-Logan phantom
-python main.py upload              # Pick any image → simulate CT reconstruction
-python main.py validate --all     # Run all validation checks
-python main.py noise --regularize # Test noise robustness
-python main.py interactive        # Menu-driven mode (no flags needed)
-python main.py info               # Project information
+# Interactive menu
+python main.py interactive
 ```
 
-The `upload` command is especially useful for demonstrations — you pick any image file (DICOM, PNG, JPG), and the program:
-1. Resizes it to use as the ground truth phantom
-2. Simulates X-ray projections through it
-3. Reconstructs it from those projections
-4. Shows you how accurate the reconstruction was
-
-This makes the abstract math concrete — you can see with your own eyes how the algorithm performs on different types of images.
-
 ---
 
-## The Math Behind It All (Formal Summary)
-
-For a complete formal treatment:
-
-1. **Forward model:** `A · x = b` where `A ∈ ℝ^{m×n}`, `m > n`
-2. **Least-squares solution:** `x̂ = argmin ‖A·x — b‖²`
-3. **Normal equations:** `(Aᵀ·A)·x = Aᵀ·b`
-4. **LU decomposition:** `Aᵀ·A = P·L·U`, then forward/back-substitution
-5. **LSQR (iterative):** Bidiagonalization + Golub-Kahan process, equivalent to CG on the normal equations
-6. **Iterative refinement:** `x_{k+1} = x_k + A†·(b — A·x_k)`
-7. **Tikhonov regularization:** `x̂ = argmin ‖A·x — b‖² + λ²‖x‖²`
-8. **Quality metrics:** `RMSE`, `PSNR`, `SSIM` for comparing `x̂` to true `x`
-
----
-
-## References
-
-- Shepp, L. A., & Logan, B. F. (1974). "The Fourier reconstruction of a head section." *IEEE Transactions on Nuclear Science*, 21(3), 21-43.
-- Paige, C. C., & Saunders, M. A. (1982). "LSQR: An algorithm for sparse linear equations and sparse least squares." *ACM Transactions on Mathematical Software*, 8(1), 43-71.
-- Tikhonov, A. N., & Arsenin, V. Y. (1977). *Solutions of Ill-Posed Problems*. Winston & Sons.
-- Wang, Z., et al. (2004). "Image quality assessment: from error visibility to structural similarity." *IEEE Transactions on Image Processing*, 13(4), 600-612.
+*This project was built as an educational prototype for CT reconstruction using linear algebra. The core numerical work is solving a large, sparse, overdetermined linear system — first by recognizing it as a least-squares problem, then applying iterative solvers (LSQR) with Tikhonov regularization to recover a stable, accurate image from noisy projection measurements.*

@@ -1,6 +1,9 @@
 __pycache__/
-.pytest_cache/
 *.pyc
-*.png
-*.json
-.sixth/
+*.pyo
+.pytest_cache/
+.env
+*.egg-info/
+dist/
+build/
+.ipynb_checkpoints/
